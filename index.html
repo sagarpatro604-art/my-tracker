@@ -3,51 +3,56 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>My Tracker</title>
-  <meta name="description" content="Personal tracker: to-dos, accuracy, Instagram consistency, thoughts and books.">
+  <title>Playbook</title>
+  <meta name="description" content="Playbook: tasks, schedule, Instagram consistency, My Book, thoughts and books.">
   <meta name="robots" content="noindex, nofollow">
-  <meta name="theme-color" content="#4f46e5">
+  <meta name="theme-color" content="#0c0b10">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-title" content="Tracker">
+  <meta name="apple-mobile-web-app-title" content="Playbook">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap">
   <link rel="stylesheet" href="css/style.css">
+  <script>
+    // Apply the saved look before first paint so there is no flash.
+    try {
+      var m = localStorage.getItem('tracker.theme') || 'dark', p = localStorage.getItem('tracker.palette') || 'lavender';
+      if (m === 'auto') m = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+      document.documentElement.dataset.theme = m;
+      document.documentElement.dataset.palette = p;
+    } catch (e) {}
+  </script>
 </head>
 <body>
-  <div class="app">
-    <aside class="sidebar">
-      <a class="brand" href="#/"><span class="brand-mark">✓</span> My Tracker</a>
-      <nav class="nav" aria-label="Main">
-        <a href="#/" data-nav=""><svg class="ic" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>Dashboard</a>
-        <a href="#/tasks" data-nav="tasks"><svg class="ic" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="6" height="6" rx="1.5"/><path d="m3 17 2 2 4-4"/><path d="M13 7h8M13 13h8M13 19h8"/></svg>To-Do</a>
-        <a href="#/insta" data-nav="insta"><svg class="ic" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/></svg>Instagram</a>
-        <a href="#/mybook" data-nav="mybook"><svg class="ic" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-6"/></svg>My Book</a>
-        <a href="#/thoughts" data-nav="thoughts"><svg class="ic" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>Thoughts</a>
-        <a href="#/books" data-nav="books"><svg class="ic" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5z"/><path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/></svg>Bookshelf</a>
-        <a href="#/ideas" data-nav="ideas"><svg class="ic" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.3h6c0-1 .4-1.8 1-2.3A7 7 0 0 0 12 2Z"/></svg>Content ideas</a>
-        <a href="#/settings" data-nav="settings"><svg class="ic" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg>Settings</a>
-      </nav>
-    </aside>
-
-    <header class="mobile-top">
-      <a class="brand" href="#/"><span class="brand-mark">✓</span> My Tracker</a>
+  <div class="shell" id="shell">
+    <header class="topbar">
+      <button class="icon-btn" data-act="toggleRail" aria-label="Menu"><svg class="ic" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+      <a class="brand" href="#/" aria-label="Playbook home">
+        <svg class="brand-logo" viewBox="0 0 40 40" aria-hidden="true">
+          <defs><linearGradient id="pbg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" style="stop-color:var(--accent)"/><stop offset="1" style="stop-color:var(--accent-2)"/></linearGradient></defs>
+          <rect width="40" height="40" rx="11" fill="url(#pbg)"/>
+          <rect x="10.5" y="10" width="4.2" height="20" rx="2.1" style="fill:var(--on-accent)"/>
+          <path d="M18.6 11.6c0-1.3 1.4-2.1 2.5-1.4l10.2 7.3c1 .7 1 2.1 0 2.8l-10.2 7.3c-1.1.8-2.5-.1-2.5-1.4z" style="fill:var(--on-accent)"/>
+        </svg>
+        <span>Playbook</span>
+      </a>
       <span class="spacer"></span>
-      <a class="icon-btn" href="#/mybook" data-nav="mybook" aria-label="My Book"><svg class="ic" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-6"/></svg></a>
-      <a class="icon-btn" href="#/ideas" data-nav="ideas" aria-label="Content ideas"><svg class="ic" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.3h6c0-1 .4-1.8 1-2.3A7 7 0 0 0 12 2Z"/></svg></a>
-      <a class="icon-btn" href="#/settings" data-nav="settings" aria-label="Settings"><svg class="ic" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg></a>
+      <div class="top-search">
+        <svg class="ic" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="globalSearch" type="search" placeholder="Type to search…" autocomplete="off" aria-label="Search everything" data-input="globalSearch">
+        <kbd>Ctrl K</kbd>
+        <div class="search-pop" id="searchPop" hidden></div>
+      </div>
+      <a class="avatar" href="#/settings" aria-label="Settings">SP</a>
     </header>
-
+    <nav class="rail" id="rail" aria-label="Main"></nav>
+    <div class="scrim" data-act="toggleRail"></div>
     <main id="view" tabindex="-1"></main>
   </div>
-
-  <nav class="bottombar" aria-label="Main">
-    <a href="#/" data-nav=""><svg class="ic" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg><span>Home</span></a>
-    <a href="#/tasks" data-nav="tasks"><svg class="ic" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="6" height="6" rx="1.5"/><path d="m3 17 2 2 4-4"/><path d="M13 7h8M13 13h8M13 19h8"/></svg><span>To-Do</span></a>
-    <a href="#/insta" data-nav="insta"><svg class="ic" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/></svg><span>Insta</span></a>
-    <a href="#/thoughts" data-nav="thoughts"><svg class="ic" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg><span>Thoughts</span></a>
-    <a href="#/books" data-nav="books"><svg class="ic" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5z"/><path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/></svg><span>Books</span></a>
-  </nav>
+  <nav class="bottombar" id="bottombar" aria-label="Main"></nav>
 
   <dialog id="modal"></dialog>
   <div id="toast" role="status" aria-live="polite"></div>

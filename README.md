@@ -1,4 +1,4 @@
-# My Tracker
+# Playbook
 
 Personal dashboard: to-dos with an accuracy board, Instagram posting consistency (auto-updated nightly),
 thoughts you can copy on any device, a bookshelf and a content-idea bank. Plain HTML/CSS/JS, no build step.

@@ -54,6 +54,14 @@ const ICONS = {
   upload: '<path d="M12 21V9M7 14l5-5 5 5M5 3h14"/>',
   clip: '<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+  chart: '<path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-6"/>',
+  chevL: '<path d="m15 18-6-6 6-6"/>',
+  chevR: '<path d="m9 18 6-6-6-6"/>',
+  expand: '<path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>',
+  grip: '<circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/>',
+  arrowR: '<path d="M5 12h14M13 6l6 6-6 6"/>',
+  file: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/>',
+  film: '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M7 3v18M17 3v18M3 8h4M17 8h4M3 16h4M17 16h4"/>',
   star: '<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9Z"/>',
 };
 const ic = (n, s = 18) => `<svg class="ic" viewBox="0 0 24 24" width="${s}" height="${s}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[n] || ''}</svg>`;
@@ -66,7 +74,7 @@ const PRIO_RANK = { high: 0, med: 1, low: 2 };
 const THOUGHT_CATS = ['LinkedIn posts', 'Instagram scripts', 'Ideas', 'Instagram inspo', 'Scripting ideas'];
 const lastThoughtCat = () => { try { return localStorage.getItem('tracker.thoughtCat') || 'Ideas'; } catch { return 'Ideas'; } };
 
-const ui = { taskFilter: 'today', taskQ: '', thoughtQ: '', thoughtCat: 'all', bookFilter: 'reading', ideaFilter: 'all', ideaQ: '', expanded: new Set() };
+const ui = { sched: { mode: 'week', anchor: today(), filter: 'all', scroll: undefined }, todoTab: 'today', searchQ: '', taskFilter: 'today', taskQ: '', thoughtQ: '', thoughtCat: 'all', bookFilter: 'reading', ideaFilter: 'all', ideaQ: '', expanded: new Set() };
 
 /* ---------------- toast, clipboard, modal ---------------- */
 let toastTimer;
@@ -262,51 +270,230 @@ function greeting() {
 const clockText = () => { const d = new Date(); return fmtTime(pad(d.getHours()) + ':' + pad(d.getMinutes())); };
 const longDate = () => { const d = new Date(); return `${DAY_LONG[d.getDay()]}, ${d.getDate()} ${MON_LONG[d.getMonth()]} ${d.getFullYear()}`; };
 
+/* ---------------- Schedule (day / week / month) ---------------- */
+const HOUR_H = 56;
+const EV_KINDS = [['task', 'Tasks', 'todo'], ['reel', 'Reels', 'film'], ['idea', 'Content', 'bulb'], ['review', 'Reviews', 'chart']];
+
+function schedRange() {
+  const a = ui.sched.anchor;
+  if (ui.sched.mode === 'day') return { from: a, to: a, days: [a] };
+  if (ui.sched.mode === 'week') {
+    const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart(a), i));
+    return { from: days[0], to: days[6], days };
+  }
+  const first = a.slice(0, 8) + '01';
+  const f = parseYmd(first);
+  const last = ymd(new Date(f.getFullYear(), f.getMonth() + 1, 0));
+  const days = [];
+  for (let d = weekStart(first); d <= addDays(weekStart(last), 6); d = addDays(d, 1)) days.push(d);
+  return { from: days[0], to: days[days.length - 1], days, month: first.slice(0, 7) };
+}
+
+function schedLabel() {
+  const { days, month } = schedRange();
+  if (month) { const f = parseYmd(month + '-01'); return `${MON_LONG[f.getMonth()]} ${f.getFullYear()}`; }
+  const s = parseYmd(days[0]), e = parseYmd(days[days.length - 1]);
+  if (days.length === 1) return `${DAY[s.getDay()]}, ${s.getDate()} ${MON[s.getMonth()]}`;
+  return `${MON[s.getMonth()]} ${s.getDate()} - ${MON[e.getMonth()]} ${e.getDate()}`;
+}
+
+function schedEvents(from, to) {
+  const inRange = (d) => d && d >= from && d <= to;
+  const ev = [];
+  for (const x of S.all('tasks')) if (inRange(x.due)) ev.push({ kind: 'task', id: x.id, d: x.due, time: x.time, title: x.title, done: x.done, sub: x.category });
+  for (const r of S.all('reels')) if (inRange(r.date)) ev.push({ kind: 'reel', id: r.id, d: r.date, time: r.time, title: r.caption || 'Reel', url: r.url, sub: r.kind === 'carousel' ? 'Carousel' : 'Reel posted' });
+  for (const i of S.all('ideas')) if (inRange(i.planDate) && i.status !== 'Posted') ev.push({ kind: 'idea', id: i.id, d: i.planDate, time: i.planTime, title: i.title, sub: i.type || 'Planned content' });
+  const rv = S.get('mybook', 'mybook')?.book?.next_review?.review;
+  if (inRange(rv)) ev.push({ kind: 'review', d: rv, title: 'My Book weekly review', sub: 'Sector Scope' });
+  return ev;
+}
+
+function evEl(e, cls, style = '') {
+  const sub = [e.time ? fmtTime(e.time) : '', e.sub ? esc(e.sub) : ''].filter(Boolean).join(' · ');
+  const inner = `<span class="ev-t">${esc(e.title)}</span>${sub ? `<span class="ev-s">${sub}</span>` : ''}`;
+  const c = `ev ev-${e.kind} ${e.done ? 'is-done' : ''} ${cls}`;
+  const st = style ? ` style="${style}"` : '';
+  if (e.kind === 'reel') return e.url ? `<a class="${c}"${st} href="${esc(e.url)}" target="_blank" rel="noopener" title="${esc(e.title)}">${inner}</a>` : `<a class="${c}"${st} href="#/insta">${inner}</a>`;
+  if (e.kind === 'review') return `<a class="${c}"${st} href="#/mybook" title="${esc(e.title)}">${inner}</a>`;
+  return `<button class="${c}"${st} data-act="${e.kind === 'task' ? 'editTask' : 'editIdea'}" data-id="${esc(e.id)}" title="${esc(e.title)}">${inner}</button>`;
+}
+
+// Timed events for one day, side by side where they overlap.
+function layoutDay(evs) {
+  const items = evs.map((e) => { const [h, m] = e.time.split(':').map(Number); const s = h * 60 + (m || 0); return { e, s, end: s + 60 }; }).sort((a, b) => a.s - b.s);
+  const out = [];
+  let cluster = [], cEnd = -1;
+  const flush = () => {
+    const lanes = [];
+    for (const it of cluster) { let l = lanes.findIndex((end) => end <= it.s); if (l < 0) { l = lanes.length; lanes.push(0); } lanes[l] = it.end; it.lane = l; }
+    cluster.forEach((it) => { it.n = lanes.length; });
+    out.push(...cluster);
+    cluster = [];
+  };
+  for (const it of items) { if (cluster.length && it.s >= cEnd) flush(); cluster.push(it); cEnd = Math.max(cEnd, it.end); }
+  if (cluster.length) flush();
+  return out.map((it) => evEl(it.e, 'ev-block', `top:${(it.s / 60) * HOUR_H + 2}px;height:${HOUR_H - 6}px;left:calc(${(it.lane * 100) / it.n}% + 3px);width:calc(${100 / it.n}% - 6px)`)).join('');
+}
+
+function scheduleHTML(full = false) {
+  const { from, to, days, month } = schedRange();
+  const all = schedEvents(from, to);
+  const evs = ui.sched.filter === 'all' ? all : all.filter((e) => e.kind === ui.sched.filter);
+  const t = today();
+  const head = `<div class="sched-top">
+      <div class="sched-title"><span class="muted">${ic('grip', 16)}</span>${ic('calendar', 18)}<h2>Schedule</h2></div>
+      <div class="range-nav"><button class="icon-btn" data-act="schedNav" data-v="-1" aria-label="Previous">${ic('chevL', 16)}</button><button class="range-lbl" data-act="schedToday" title="Back to today">${schedLabel()}</button><button class="icon-btn" data-act="schedNav" data-v="1" aria-label="Next">${ic('chevR', 16)}</button></div>
+      <span class="spacer"></span>
+      <div class="seg">${['day', 'week', 'month'].map((m) => `<button class="${ui.sched.mode === m ? 'on' : ''}" data-act="schedMode" data-v="${m}">${m[0].toUpperCase() + m.slice(1)}</button>`).join('')}</div>
+      ${full ? '' : `<a class="icon-btn" href="#/schedule" aria-label="Open full schedule">${ic('expand', 17)}</a>`}
+    </div>
+    <div class="chips sched-filters">${[['all', 'All', all.length, null], ...EV_KINDS.map(([k, l, i]) => [k, l, all.filter((e) => e.kind === k).length, i])].map(([k, l, n, i]) => `<button class="chip ${ui.sched.filter === k ? 'active' : ''}" data-act="schedFilter" data-v="${k}">${i ? ic(i, 14) + ' ' : ''}${l}${k === 'all' ? '' : ` (${n})`}</button>`).join('')}</div>`;
+
+  if (month) {
+    const cells = days.map((d) => {
+      const de = evs.filter((e) => e.d === d);
+      return `<div class="m-cell ${d.slice(0, 7) === month ? '' : 'out'} ${d === t ? 'today' : ''}">
+        <button class="m-date" data-act="schedDay" data-v="${d}" aria-label="Open ${fmtDate(d)}">${parseYmd(d).getDate()}</button>
+        ${de.slice(0, 3).map((e) => evEl(e, 'ev-chip')).join('')}
+        ${de.length > 3 ? `<button class="m-more" data-act="schedDay" data-v="${d}">+${de.length - 3} more</button>` : ''}
+      </div>`;
+    }).join('');
+    return `<div class="sched">${head}<div class="sched-scroll-x"><div class="month-grid">${['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => `<div class="m-h">${d}</div>`).join('')}${cells}</div></div></div>`;
+  }
+
+  const now = new Date();
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const hours = Array.from({ length: 24 }, (_, h) => h);
+  const showNow = days.includes(t);
+  return `<div class="sched ${full ? 'full' : ''}">${head}
+    <div class="sched-scroll-x"><div class="sched-cal ${days.length === 1 ? 'one' : ''}" style="--cols:${days.length}">
+      <div class="sc-row sc-head"><div class="gut small muted">GMT +5:30</div>${days.map((d) => { const dt = parseYmd(d); return `<button class="dh ${d === t ? 'today' : ''}" data-act="schedDay" data-v="${d}">${DAY[dt.getDay()].toUpperCase()} <b>${dt.getDate()}</b></button>`; }).join('')}</div>
+      <div class="sc-row sc-allday"><div class="gut small">All Day</div>${days.map((d) => `<div class="ad">${evs.filter((e) => e.d === d && !e.time).map((e) => evEl(e, 'ev-chip')).join('')}</div>`).join('')}</div>
+      <div class="sc-body" id="schedBody"><div class="sc-row sc-grid" style="height:${24 * HOUR_H}px">
+        <div class="gut hours">${hours.map((h) => (h ? `<span style="top:${h * HOUR_H}px">${fmtTime(pad(h) + ':00')}</span>` : '')).join('')}${showNow ? `<span class="now-badge" style="top:${(nowMin / 60) * HOUR_H}px">${clockText()}</span>` : ''}</div>
+        ${days.map((d) => `<div class="col ${d === t ? 'today' : ''}">${hours.map((h) => `<button class="slot" style="top:${h * HOUR_H}px;height:${HOUR_H}px" data-act="slotAdd" data-d="${d}" data-h="${h}" aria-label="Add a task on ${fmtDate(d)} at ${fmtTime(pad(h) + ':00')}"></button>`).join('')}${layoutDay(evs.filter((e) => e.d === d && e.time))}${d === t ? `<div class="now-line" style="top:${(nowMin / 60) * HOUR_H}px"></div>` : ''}</div>`).join('')}
+      </div></div>
+    </div></div>
+  </div>`;
+}
+
+function afterRender() {
+  const sb = $('#schedBody');
+  if (!sb) return;
+  const { days } = schedRange();
+  sb.scrollTop = ui.sched.scroll ?? (days.includes(today()) ? Math.max(0, new Date().getHours() - 2) : 8) * HOUR_H;
+  sb.addEventListener('scroll', () => { ui.sched.scroll = sb.scrollTop; }, { passive: true });
+}
+
+function viewSchedule() {
+  return `${banner()}<section class="card">${scheduleHTML(true)}</section>
+  <p class="muted small">Click an empty slot to add a task at that time. Reels come from the nightly Instagram update, content from your ideas' planned dates, and reviews from My Book.</p>`;
+}
+
+/* ---------------- To Do panel ---------------- */
+const TODO_TABS = [['today', 'Today'], ['upcoming', 'Upcoming'], ['overdue', 'Overdue'], ['done', 'Done']];
+
+function todoCard(x) {
+  const t = today();
+  const over = !x.done && x.due && x.due < t;
+  const due = x.done && x.doneAt
+    ? `Done ${DAY[new Date(x.doneAt).getDay()]}, ${fmtDT(x.doneAt).replace(', ', ' • ')}`
+    : x.due ? `Due ${DAY[parseYmd(x.due).getDay()]}, ${fmtDate(x.due)} • ${x.time ? fmtTime(x.time) : 'Any time'}` : 'No due date';
+  return `<div class="todo-card ${x.done ? 'is-done' : ''} ${over ? 'over' : ''}">
+    <div class="row"><span class="pill-chip prio-${x.priority || 'med'}">${ic('file', 13)} ${esc(x.category || 'Task')}</span><span class="spacer"></span>
+      <button class="chk" data-act="toggleTask" data-id="${x.id}" aria-label="${x.done ? 'Mark not done' : 'Mark done'}">${ic('check', 14)}</button></div>
+    <div class="muted small">${{ high: 'High', med: 'Medium', low: 'Low' }[x.priority || 'med']} priority${x.notes ? ' · ' + esc(x.notes.slice(0, 60)) : ''}</div>
+    <button class="todo-title" data-act="editTask" data-id="${x.id}">${esc(x.title)}</button>
+    <span class="due-pill ${over ? 'bad' : x.done ? 'good' : ''}">${ic('clock', 13)} ${over ? 'Overdue · ' : ''}${due}</span>
+  </div>`;
+}
+
+function todoPanel() {
+  const g = taskBuckets(S.all('tasks'));
+  const tab = ui.todoTab;
+  const list = tab === 'done' ? g.done.slice().sort((a, b) => (b.doneAt || '').localeCompare(a.doneAt || '')).slice(0, 40) : sortTasks(g[tab] || []);
+  const badge = (k) => (k === 'today' ? g.today.filter((x) => !x.done).length : g[k].length);
+  const d = new Date();
+  const dueFor = tab === 'upcoming' ? addDays(today(), 1) : today();
+  return `<section class="card todo c-todo">
+    <div class="todo-head"><div class="date-badge"><span>${DAY[d.getDay()]}</span><b>${pad(d.getDate())}</b></div><h2>To Do List</h2><span class="spacer"></span><a class="link-btn" href="#/tasks">View all</a></div>
+    <div class="todo-tabs">${TODO_TABS.map(([k, l]) => `<button class="${tab === k ? 'on' : ''}" data-act="todoTab" data-v="${k}">${l}<span class="badge">${badge(k)}</span></button>`).join('')}</div>
+    <form class="inline-add" data-form="addTask"><input class="input" name="title" placeholder="Add a task for ${tab === 'upcoming' ? 'tomorrow' : 'today'}…" autocomplete="off" required><input type="hidden" name="due" value="${dueFor}"><button class="btn primary" aria-label="Add task">${ic('plus')}</button></form>
+    <div class="todo-list">${list.length ? list.map(todoCard).join('') : empty({ today: 'Nothing due today.', upcoming: 'Nothing coming up.', overdue: 'Nothing overdue. Nice.', done: 'Nothing completed yet.' }[tab])}</div>
+  </section>`;
+}
+
+/* ---------------- Dashboard ---------------- */
+const PROMO_ART = `<svg viewBox="0 0 120 120" aria-hidden="true"><circle cx="60" cy="60" r="44" style="fill:var(--accent-soft)"/><rect x="34" y="40" width="52" height="40" rx="10" style="fill:none;stroke:var(--accent);stroke-width:4"/><circle cx="60" cy="60" r="10" style="fill:none;stroke:var(--accent);stroke-width:4"/><circle cx="76" cy="49" r="2.6" style="fill:var(--accent)"/><path d="M96 22l3 7 7 3-7 3-3 7-3-7-7-3 7-3z" style="fill:var(--accent-2)"/><path d="M22 86l2 4.5 4.5 2-4.5 2-2 4.5-2-4.5-4.5-2 4.5-2z" style="fill:var(--accent)"/></svg>`;
+
 function viewDashboard() {
   const t = today();
   const tasks = S.all('tasks');
-  const todays = tasks.filter((x) => x.due === t);
-  const doneToday = todays.filter((x) => x.done).length;
-  const overdue = tasks.filter((x) => !x.done && x.due && x.due < t);
+  const g = taskBuckets(tasks);
+  const left = g.today.filter((x) => !x.done).length;
   const acc = accuracy(tasks);
   const ig = instaStats();
+  const mb = S.get('mybook', 'mybook');
   const reading = S.all('books').filter((b) => b.status === 'reading');
-  const focus = sortTasks([...overdue, ...todays, ...tasks.filter((x) => !x.due && !x.done)]);
   const thoughts = sortedThoughts().slice(0, 3);
+  const postedToday = ig.byDay.has(t);
+  const summary = [
+    `${left} task${left === 1 ? '' : 's'} left today`,
+    g.overdue.length ? `${g.overdue.length} overdue` : null,
+    postedToday ? 'reel posted' : 'no reel yet today',
+    mb ? `My Book ${sPct(mb.book?.pnl_pct)}` : null,
+  ].filter(Boolean).join(' · ');
+  const d = new Date();
 
   return `${banner()}
-  <header class="page-head">
-    <div><p class="eyebrow" id="dateLine">${longDate()}</p><h1>${greeting()}</h1></div>
-    <div class="clock" id="clock">${clockText()}</div>
-  </header>
-  <section class="stats">
-    ${stat('Done today', `${doneToday}<small>/${todays.length}</small>`, todays.length ? `${todays.length - doneToday} left` : 'No tasks for today', todays.length && doneToday === todays.length ? 'good' : '')}
-    ${stat('Overdue', overdue.length, overdue.length ? 'Needs attention' : 'All clear', overdue.length ? 'bad' : 'good')}
-    ${stat('Week accuracy', pctText(acc.week.pct), `${acc.week.done}/${acc.week.total} tasks`, toneFor(acc.week.pct))}
-    ${stat('Reels this week', `${ig.weekPosted}<small>/${ig.weekSoFar}</small>`, `${ig.weekSoFar - ig.weekPosted} day${ig.weekSoFar - ig.weekPosted === 1 ? '' : 's'} missed`, ig.weekPosted === ig.weekSoFar ? 'good' : ig.weekSoFar - ig.weekPosted > 2 ? 'bad' : 'warn')}
-    ${stat('Posting streak', `${ig.streak}<small> days</small>`, `Best: ${ig.longest} days`)}
-    ${stat('Reading', reading.length, reading[0] ? esc(reading[0].title) : 'Add a book')}
-  </section>
-
-  <div class="grid2">
-    <section class="card">
-      <div class="card-head"><h2>Focus list</h2><a class="link-btn" href="#/tasks">All tasks →</a></div>
-      <form class="inline-add" data-form="addTask"><input class="input" name="title" placeholder="Add a task for today…" autocomplete="off" required><input type="hidden" name="due" value="${t}"><button class="btn primary" aria-label="Add task">${ic('plus')}</button></form>
-      <div class="task-list">${focus.length ? focus.slice(0, 8).map(taskRow).join('') : empty('Nothing planned. Add your first task above.')}</div>
-      ${focus.length > 8 ? `<a class="link-btn more" href="#/tasks">+ ${focus.length - 8} more</a>` : ''}
+  <div class="dash">
+    <section class="hero c-hero">
+      <div class="hero-meta"><span class="hero-chip">PLAYBOOK</span><span>• ${DAY[d.getDay()]} ${d.getDate()} ${MON[d.getMonth()]} • <span id="clock">${clockText()}</span></span></div>
+      <h1>${greeting()}, Sagar</h1>
+      <p>${summary}.</p>
+      <div class="hero-stats">
+        <span><b>${pctText(acc.week.pct)}</b> week accuracy</span>
+        <span><b>${ig.streak}</b> day posting streak</span>
+        <span><b>${acc.perfect}</b> perfect days</span>
+      </div>
     </section>
 
-    <section class="card">
-      <div class="card-head"><h2>Accuracy board</h2><span class="muted small">tasks done on their due day</span></div>
+    <div class="tiles c-tiles">
+      <a class="tile" href="#/mybook">${ic('chart', 18)}<span class="grow"><b>My Book</b><small>${mb ? `${inr(mb.book?.nav)} · ${sPct(mb.book?.pnl_pct)}` : 'From Sector Scope'}</small></span>${ic('arrowR', 18)}</a>
+      <a class="tile" href="#/thoughts">${ic('pen', 18)}<span class="grow"><b>Thoughts</b><small>${S.all('thoughts').length} saved</small></span>${ic('arrowR', 18)}</a>
+      <a class="tile wide glow" href="#/ideas">${ic('bulb', 22)}<span class="grow"><b>Content Studio <em>· powered by you</em></b><small class="caps">Scripts | Inspo | Ideas</small></span>${ic('arrowR', 18)}</a>
+    </div>
+
+    <section class="promo c-promo">
+      <div class="promo-art">${PROMO_ART}</div>
+      <h3>${postedToday ? 'Posted today. <em>Keep it going!</em>' : 'Ready to <em>post</em> today?'}</h3>
+      <p>${ig.streak}-day streak · ${ig.weekPosted}/${ig.weekSoFar} this week</p>
+      <a class="btn primary pill" href="#/insta">${postedToday ? 'See stats' : "Let's go"}</a>
+    </section>
+
+    <section class="card c-sched">${scheduleHTML()}</section>
+    ${todoPanel()}
+
+    <section class="card c-third">
+      <div class="card-head"><h2>Accuracy board</h2><span class="muted small">done on the due day</span></div>
       <div class="acc-grid">
         ${[['Today', acc.today], ['This week', acc.week], ['This month', acc.month], ['All time', acc.all]].map(([l, r]) => `<div class="acc ${toneFor(r.pct)}"><div class="acc-val">${pctText(r.pct)}</div><div class="acc-label">${l}</div><div class="acc-sub">${r.done}/${r.total}</div></div>`).join('')}
       </div>
       ${accuracyBars(acc)}
-      <div class="acc-foot"><span>${ic('clock', 14)} On-time: <b>${pctText(acc.onTime)}</b></span><span>${ic('flame', 14)} Perfect-day streak: <b>${acc.perfect}</b></span></div>
+      <div class="acc-foot"><span>${ic('clock', 14)} On-time: <b>${pctText(acc.onTime)}</b></span><span>${ic('flame', 14)} Perfect days: <b>${acc.perfect}</b></span></div>
     </section>
 
-    <section class="card">
-      <div class="card-head"><h2>Instagram this week</h2><a class="link-btn" href="#/insta">Details →</a></div>
+    <section class="card c-third">
+      <div class="card-head"><h2>Thoughts</h2><a class="link-btn" href="#/thoughts">View all ${ic('chevR', 14)}</a></div>
+      <form data-form="addThought" class="compose small-compose">
+        <textarea class="input" name="text" rows="2" placeholder="Write it down… (Ctrl+Enter saves)" data-input="draft">${esc(localStorage.getItem('tracker.draft') || '')}</textarea>
+        <div class="row"><select class="input sm" name="category" aria-label="Category">${opts(THOUGHT_CATS, lastThoughtCat())}</select><span class="spacer"></span><button class="btn primary sm">Save</button></div>
+      </form>
+      <div class="thought-list compact">${thoughts.map(thoughtCard).join('') || empty('Your thoughts show up here, ready to copy on any device.')}</div>
+    </section>
+
+    <section class="card c-third">
+      <div class="card-head"><h2>Instagram this week</h2><a class="link-btn" href="#/insta">Details ${ic('chevR', 14)}</a></div>
       ${weekStrip(ig)}
       <div class="mini-stats">
         <div><b>${ig.monthPosted}</b><span>reels this month</span></div>
@@ -316,22 +503,59 @@ function viewDashboard() {
       <p class="muted small">${ig.sync?.lastRun ? `Auto-updated ${fmtDT(ig.sync.lastRun)}` : 'Auto-update not connected yet'}</p>
     </section>
 
-    <section class="card">
-      <div class="card-head"><h2>Quick thought</h2><a class="link-btn" href="#/thoughts">All thoughts →</a></div>
-      <form data-form="addThought" class="compose small-compose">
-        <textarea class="input" name="text" rows="3" placeholder="Write it down… (Ctrl+Enter saves)" data-input="draft">${esc(localStorage.getItem('tracker.draft') || '')}</textarea>
-        <div class="row"><select class="input sm" name="category" aria-label="Category">${opts(THOUGHT_CATS, lastThoughtCat())}</select><span class="spacer"></span><button class="btn primary">Save</button></div>
-      </form>
-      <div class="thought-list compact">${thoughts.map(thoughtCard).join('') || empty('Your thoughts show up here, ready to copy on any device.')}</div>
-    </section>
+    ${myBookCard('c-half')}
 
-    ${myBookCard()}
-
-    <section class="card span2">
-      <div class="card-head"><h2>Currently reading</h2><a class="link-btn" href="#/books">Bookshelf →</a></div>
+    <section class="card ${mb ? 'c-half' : 'c-full'}">
+      <div class="card-head"><h2>Currently reading</h2><a class="link-btn" href="#/books">Bookshelf ${ic('chevR', 14)}</a></div>
       ${reading.length ? `<div class="reading-list">${reading.map((b) => { const p = bookProgress(b); return `<div class="reading"><div class="spine" style="--h:${hue(b.title)}"></div><div class="grow"><div class="book-title">${esc(b.title)}</div><div class="muted small">${esc(b.author || '')}${b.totalPages ? ` · page ${b.currentPage || 0} of ${b.totalPages}` : ''}</div><div class="progress"><span style="width:${p ?? 0}%"></span></div></div><b class="tnum">${p == null ? '' : p + '%'}</b></div>`; }).join('')}</div>` : empty('No book in progress. Add one on the Bookshelf.')}
     </section>
   </div>`;
+}
+
+/* ---------------- Global search ---------------- */
+function searchResults(q) {
+  q = q.trim().toLowerCase();
+  if (q.length < 2) return [];
+  const has = (s) => String(s || '').toLowerCase().includes(q);
+  const out = [];
+  for (const x of S.all('tasks')) if (has(x.title) || has(x.category) || has(x.notes)) out.push(['tasks', 'Task', x.title, x.due ? relDate(x.due) : '']);
+  for (const x of S.all('thoughts')) if (has(x.text)) out.push(['thoughts', x.category || 'Thought', (x.text || '').split('\n')[0], fmtDate(ymd(new Date(x.createdAt)))]);
+  for (const x of S.all('ideas')) if (has(x.title) || has(x.script)) out.push(['ideas', 'Idea', x.title, x.status || '']);
+  for (const x of S.all('books')) if (has(x.title) || has(x.author)) out.push(['books', 'Book', x.title, x.author || '']);
+  for (const x of S.all('reels')) if (has(x.caption)) out.push(['insta', 'Reel', x.caption, fmtDate(x.date)]);
+  for (const p of S.get('mybook', 'mybook')?.book?.positions || []) if (has(p.sym)) out.push(['mybook', 'Holding', p.sym, sPct(p.pnl_pct)]);
+  return out.slice(0, 14);
+}
+function closeSearch() {
+  const pop = $('#searchPop'), inp = $('#globalSearch');
+  if (pop) pop.hidden = true;
+  if (inp) { inp.value = ''; inp.blur(); }
+}
+
+/* ---------------- Navigation ---------------- */
+const NAV = [['', 'Dashboard', 'home'], ['schedule', 'Schedule', 'calendar'], ['tasks', 'To-Do', 'todo'], ['insta', 'Instagram', 'insta'], ['mybook', 'My Book', 'chart'], ['thoughts', 'Thoughts', 'pen'], ['books', 'Bookshelf', 'book'], ['ideas', 'Content ideas', 'bulb']];
+const BOTTOM_NAV = ['', 'schedule', 'tasks', 'thoughts', 'mybook'];
+function buildNav() {
+  const link = ([r, l, i]) => `<a href="#/${r}" data-nav="${r}" data-tip="${l}">${ic(i, 20)}<span class="lbl">${l}</span></a>`;
+  $('#rail').innerHTML = NAV.map(link).join('') + `<div class="rail-foot">${link(['settings', 'Settings', 'sliders'])}</div>`;
+  $('#bottombar').innerHTML = BOTTOM_NAV.map((r) => NAV.find((n) => n[0] === r)).map(([r, l, i]) => `<a href="#/${r}" data-nav="${r}">${ic(i, 22)}<span>${r === '' ? 'Home' : l}</span></a>`).join('');
+  try { if (localStorage.getItem('tracker.rail') === 'open' && innerWidth > 820) $('#shell').classList.add('rail-open'); } catch {}
+}
+
+function newTaskModal(due, time) {
+  openModal('New task', `
+    ${field('Task', `<input class="input" name="title" required autocomplete="off">`)}
+    <div class="form-grid">
+      ${field('Date', `<input class="input" type="date" name="due" value="${esc(due || today())}">`)}
+      ${field('Time', `<input class="input" type="time" name="time" value="${esc(time || '')}">`)}
+      ${field('Priority', `<select class="input" name="priority">${opts(PRIOS, 'med')}</select>`)}
+      ${field('Category', `<input class="input" name="category">`)}
+    </div>`,
+  (v) => {
+    if (!v.title.trim()) return;
+    S.put('tasks', { title: v.title.trim(), due: v.due || null, time: v.time || null, priority: v.priority, category: v.category.trim() || null, done: false, doneAt: null });
+    toast('Task added');
+  }, 'Add task');
 }
 
 function taskBuckets(tasks) {
@@ -520,14 +744,14 @@ function lineChart(series) {
   <div class="chart-legend">${lines.map((l) => `<span><i style="background:${l.color}"></i>${esc(l.label)} <b class="${sign(seriesRet(l.pts))}">${sPct(seriesRet(l.pts))}</b></span>`).join('')}</div>`;
 }
 
-function myBookCard() {
+function myBookCard(cls = '') {
   const s = S.get('mybook', 'mybook');
   if (!s) return '';
   const b = s.book || {}, p = s.portfolio || {};
   const dayRs = (b.positions || []).reduce((a, x) => a + (x.day_rs || 0), 0);
   const movers = (b.positions || []).slice().sort((a, c) => (c.day_pct ?? 0) - (a.day_pct ?? 0));
   const mv = (x) => (x ? `<span>${esc(x.sym)} <b class="${sign(x.day_pct)}">${sPct(x.day_pct)}</b></span>` : '');
-  return `<section class="card">
+  return `<section class="card ${cls}">
       <div class="card-head"><h2>My Book</h2><a class="link-btn" href="#/mybook">Details →</a></div>
       <div class="mini-stats">
         <div><b>${inr(b.nav)}</b><span>book NAV</span></div>
@@ -716,7 +940,8 @@ function deviceLink() {
 
 function viewSettings() {
   const p = prefs();
-  const theme = localStorage.getItem('tracker.theme') || 'auto';
+  const theme = localStorage.getItem('tracker.theme') || 'dark';
+  const palette = localStorage.getItem('tracker.palette') || 'lavender';
   const cloud = S.status.mode === 'cloud';
   return `<header class="page-head"><div><p class="eyebrow">Sync, import, backup</p><h1>Settings</h1></div></header>
   <section class="card">
@@ -759,7 +984,10 @@ function viewSettings() {
 
   <section class="card">
     <div class="card-head"><h2>Appearance</h2></div>
-    <div class="chips">${[['auto', 'Match device'], ['light', 'Light'], ['dark', 'Dark']].map(([k, l]) => `<button class="chip ${theme === k ? 'active' : ''}" data-act="theme" data-v="${k}">${l}</button>`).join('')}</div>
+    <p class="muted small">Colours</p>
+    <div class="chips">${[['lavender', 'Lavender', '#b9a6f5'], ['earth', 'Earthy', '#d9a66b']].map(([k, l, c]) => `<button class="chip ${palette === k ? 'active' : ''}" data-act="palette" data-v="${k}"><i class="swatch" style="background:${c}"></i>${l}</button>`).join('')}</div>
+    <p class="muted small" style="margin-top:14px">Mode</p>
+    <div class="chips">${[['dark', 'Dark'], ['light', 'Light'], ['auto', 'Match device']].map(([k, l]) => `<button class="chip ${theme === k ? 'active' : ''}" data-act="theme" data-v="${k}">${l}</button>`).join('')}</div>
   </section>`;
 }
 
@@ -777,7 +1005,7 @@ function viewSetupKey() {
 }
 
 /* ---------------- router & render ---------------- */
-const ROUTES = { '': viewDashboard, tasks: viewTasks, insta: viewInsta, mybook: viewMyBook, thoughts: viewThoughts, books: viewBooks, ideas: viewIdeas, settings: viewSettings };
+const ROUTES = { '': viewDashboard, schedule: viewSchedule, tasks: viewTasks, insta: viewInsta, mybook: viewMyBook, thoughts: viewThoughts, books: viewBooks, ideas: viewIdeas, settings: viewSettings };
 const route = () => location.hash.replace(/^#\/?/, '').split(/[?#]/)[0];
 
 function render() {
@@ -785,7 +1013,8 @@ function render() {
   document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === r));
   const view = $('#view');
   view.innerHTML = S.status.needsKey ? viewSetupKey() : ROUTES[r]();
-  document.title = `${{ '': 'Dashboard', tasks: 'To-Do', insta: 'Instagram', mybook: 'My Book', thoughts: 'Thoughts', books: 'Bookshelf', ideas: 'Ideas', settings: 'Settings' }[r]} · My Tracker`;
+  document.title = `${{ '': 'Dashboard', schedule: 'Schedule', tasks: 'To-Do', insta: 'Instagram', mybook: 'My Book', thoughts: 'Thoughts', books: 'Bookshelf', ideas: 'Ideas', settings: 'Settings' }[r]} · Playbook`;
+  afterRender();
 }
 
 // Don't yank the page out from under someone typing; re-render once they leave the field.
@@ -870,6 +1099,34 @@ function saveThought(text, category) {
 
 const ACTS = {
   closeModal,
+  toggleRail: () => {
+    const sh = $('#shell');
+    sh.classList.toggle('rail-open');
+    try { if (innerWidth > 820) localStorage.setItem('tracker.rail', sh.classList.contains('rail-open') ? 'open' : 'closed'); } catch {}
+  },
+  schedNav: (el) => {
+    const n = +el.dataset.v, m = ui.sched.mode;
+    if (m === 'day') ui.sched.anchor = addDays(ui.sched.anchor, n);
+    else if (m === 'week') ui.sched.anchor = addDays(ui.sched.anchor, 7 * n);
+    else { const d = parseYmd(ui.sched.anchor); ui.sched.anchor = ymd(new Date(d.getFullYear(), d.getMonth() + n, 1)); }
+    ui.sched.scroll = undefined; render();
+  },
+  schedToday: () => { ui.sched.anchor = today(); ui.sched.scroll = undefined; render(); },
+  schedMode: (el) => { ui.sched.mode = el.dataset.v; ui.sched.scroll = undefined; render(); },
+  schedDay: (el) => { ui.sched.mode = 'day'; ui.sched.anchor = el.dataset.v; ui.sched.scroll = undefined; render(); },
+  schedFilter: (el) => { ui.sched.filter = el.dataset.v; render(); },
+  slotAdd: (el) => newTaskModal(el.dataset.d, `${pad(+el.dataset.h)}:00`),
+  todoTab: (el) => { ui.todoTab = el.dataset.v; render(); },
+  searchGo: (el) => {
+    const q = ui.searchQ.trim(), r = el.dataset.route;
+    if (r === 'tasks') { ui.taskFilter = 'all'; ui.taskQ = q; }
+    if (r === 'thoughts') { ui.thoughtCat = 'all'; ui.thoughtQ = q; }
+    if (r === 'ideas') { ui.ideaFilter = 'all'; ui.ideaQ = q; }
+    if (r === 'books') ui.bookFilter = 'all';
+    closeSearch();
+    if (location.hash === '#/' + r) render(); else location.hash = '#/' + r;
+  },
+  palette: (el) => { try { localStorage.setItem('tracker.palette', el.dataset.v); } catch {} applyTheme(); render(); },
   toggleTask: (el) => { const x = byId('tasks', el); if (x) S.update('tasks', x.id, { done: !x.done, doneAt: x.done ? null : S.nowISO() }); },
   editTask: (el) => { const x = byId('tasks', el); if (x) taskModal(x); },
   delTask: (el) => { const x = byId('tasks', el); if (x && confirm(`Delete "${x.title}"?`)) S.remove('tasks', x); },
@@ -995,6 +1252,12 @@ const INPUTS = {
   thoughtQ: (el) => { ui.thoughtQ = el.value; $('#thoughtList').innerHTML = thoughtListHTML(); },
   ideaQ: (el) => { ui.ideaQ = el.value; $('#ideaList').innerHTML = ideaListHTML(); },
   draft: (el) => { try { localStorage.setItem('tracker.draft', el.value); } catch {} },
+  globalSearch: (el) => {
+    ui.searchQ = el.value;
+    const pop = $('#searchPop'), r = searchResults(el.value);
+    pop.hidden = el.value.trim().length < 2;
+    pop.innerHTML = r.length ? r.map(([route, kind, title, meta]) => `<button class="sr" data-act="searchGo" data-route="${route}"><span class="tag">${esc(kind)}</span><span class="t">${esc(title)}</span><span class="muted small">${esc(meta)}</span></button>`).join('') : '<div class="empty">No matches</div>';
+  },
 };
 
 document.addEventListener('click', (e) => {
@@ -1007,7 +1270,10 @@ document.addEventListener('submit', (e) => {
 });
 document.addEventListener('change', (e) => { const el = e.target.closest('[data-change]'); if (el) CHANGES[el.dataset.change]?.(el); });
 document.addEventListener('input', (e) => { const el = e.target.closest('[data-input]'); if (el) INPUTS[el.dataset.input]?.(el); });
+document.addEventListener('click', (e) => { if (!e.target.closest('.top-search')) { const pop = $('#searchPop'); if (pop) pop.hidden = true; } });
 document.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); $('#globalSearch')?.focus(); return; }
+  if (e.key === 'Escape') { if (e.target.id === 'globalSearch') closeSearch(); if (innerWidth <= 820) $('#shell').classList.remove('rail-open'); }
   if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
     const ta = e.target.closest('textarea');
     if (ta?.form) { e.preventDefault(); ta.form.requestSubmit(); }
@@ -1016,10 +1282,12 @@ document.addEventListener('keydown', (e) => {
 
 /* ---------------- boot ---------------- */
 function applyTheme() {
-  let t = 'auto';
-  try { t = localStorage.getItem('tracker.theme') || 'auto'; } catch {}
-  if (t === 'auto') delete document.documentElement.dataset.theme;
-  else document.documentElement.dataset.theme = t;
+  let mode = 'dark', pal = 'lavender';
+  try { mode = localStorage.getItem('tracker.theme') || 'dark'; pal = localStorage.getItem('tracker.palette') || 'lavender'; } catch {}
+  const root = document.documentElement;
+  root.dataset.theme = mode === 'auto' ? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark') : mode;
+  root.dataset.palette = pal;
+  document.querySelector('meta[name=theme-color]')?.setAttribute('content', getComputedStyle(root).getPropertyValue('--bg').trim());
 }
 
 let lastDay = today();
@@ -1031,8 +1299,14 @@ setInterval(() => {
 
 async function boot() {
   applyTheme();
+  buildNav();
   S.onChange(scheduleRender);
-  window.addEventListener('hashchange', () => { pendingRender = false; render(); window.scrollTo(0, 0); });
+  window.addEventListener('hashchange', () => {
+    pendingRender = false;
+    if (innerWidth <= 820) $('#shell').classList.remove('rail-open');
+    render();
+    window.scrollTo(0, 0);
+  });
   render();
   try { await S.init(); } catch (e) { console.error(e); S.status.error = 'Could not reach Firebase: ' + e.message; }
   render();
