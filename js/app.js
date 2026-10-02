@@ -63,8 +63,10 @@ const IDEA_STATUSES = ['Backlog', 'In progress', 'Ready', 'Scheduled', 'Posted']
 const BOOK_STATUSES = [['reading', 'Reading'], ['want', 'Want to read'], ['paused', 'Paused'], ['finished', 'Finished']];
 const PRIOS = [['high', 'High'], ['med', 'Medium'], ['low', 'Low']];
 const PRIO_RANK = { high: 0, med: 1, low: 2 };
+const THOUGHT_CATS = ['LinkedIn posts', 'Instagram scripts', 'Ideas', 'Instagram inspo', 'Scripting ideas'];
+const lastThoughtCat = () => { try { return localStorage.getItem('tracker.thoughtCat') || 'Ideas'; } catch { return 'Ideas'; } };
 
-const ui = { taskFilter: 'today', taskQ: '', thoughtQ: '', bookFilter: 'reading', ideaFilter: 'all', ideaQ: '', expanded: new Set() };
+const ui = { taskFilter: 'today', taskQ: '', thoughtQ: '', thoughtCat: 'all', bookFilter: 'reading', ideaFilter: 'all', ideaQ: '', expanded: new Set() };
 
 /* ---------------- toast, clipboard, modal ---------------- */
 let toastTimer;
@@ -229,7 +231,8 @@ function thoughtCard(x) {
     <div class="thought-text ${long && !ui.expanded.has(x.id) ? 'clamp' : ''}">${esc(x.text)}</div>
     ${long ? `<button class="link-btn" data-act="expand" data-id="${x.id}">${ui.expanded.has(x.id) ? 'Show less' : 'Show more'}</button>` : ''}
     <div class="thought-foot">
-      <span class="muted small">${x.pinned ? ic('pin', 13) + ' ' : ''}${fmtDT(x.createdAt)}${x.editedAt ? ' · edited' : ''}</span>
+      ${x.category ? `<span class="tag cat">${esc(x.category)}</span>` : ''}
+      <span class="muted small">${x.pinned ? ic('pin', 13) + ' ' : ''}${DAY[new Date(x.createdAt).getDay()]}, ${fmtDT(x.createdAt)}${x.editedAt ? ` · edited ${fmtDT(x.editedAt)}` : ''}</span>
       <span class="spacer"></span>
       <button class="btn sm" data-act="copyThought" data-id="${x.id}">${ic('copy', 15)} Copy</button>
       <button class="icon-btn" data-act="pinThought" data-id="${x.id}" aria-label="${x.pinned ? 'Unpin' : 'Pin'}">${ic('pin', 16)}</button>
@@ -317,10 +320,12 @@ function viewDashboard() {
       <div class="card-head"><h2>Quick thought</h2><a class="link-btn" href="#/thoughts">All thoughts →</a></div>
       <form data-form="addThought" class="compose small-compose">
         <textarea class="input" name="text" rows="3" placeholder="Write it down… (Ctrl+Enter saves)" data-input="draft">${esc(localStorage.getItem('tracker.draft') || '')}</textarea>
-        <div class="row"><span class="spacer"></span><button class="btn primary">Save</button></div>
+        <div class="row"><select class="input sm" name="category" aria-label="Category">${opts(THOUGHT_CATS, lastThoughtCat())}</select><span class="spacer"></span><button class="btn primary">Save</button></div>
       </form>
       <div class="thought-list compact">${thoughts.map(thoughtCard).join('') || empty('Your thoughts show up here, ready to copy on any device.')}</div>
     </section>
+
+    ${myBookCard()}
 
     <section class="card span2">
       <div class="card-head"><h2>Currently reading</h2><a class="link-btn" href="#/books">Bookshelf →</a></div>
@@ -458,18 +463,171 @@ function viewInsta() {
 
 function thoughtListHTML() {
   const q = ui.thoughtQ.trim().toLowerCase();
-  const list = sortedThoughts().filter((x) => !q || (x.text || '').toLowerCase().includes(q));
-  return list.length ? list.map(thoughtCard).join('') : empty(q ? 'No thoughts match.' : 'Nothing saved yet. Whatever you write here can be copied from any device.');
+  const list = sortedThoughts().filter((x) =>
+    (ui.thoughtCat === 'all' || (x.category || 'Uncategorised') === ui.thoughtCat) && (!q || (x.text || '').toLowerCase().includes(q)));
+  return list.length ? list.map(thoughtCard).join('') : empty(q ? 'No thoughts match.' : ui.thoughtCat !== 'all' ? `Nothing in ${esc(ui.thoughtCat)} yet.` : 'Nothing saved yet. Whatever you write here can be copied from any device.');
 }
+const catPicker = (cur) => `<div class="cat-pick" role="radiogroup" aria-label="Category">${THOUGHT_CATS.map((c) => `<label class="chip"><input type="radio" name="category" value="${esc(c)}" ${c === cur ? 'checked' : ''}>${esc(c)}</label>`).join('')}</div>`;
 function viewThoughts() {
+  const all = S.all('thoughts');
+  const count = (c) => all.filter((x) => (x.category || 'Uncategorised') === c).length;
+  const cats = [...THOUGHT_CATS, ...(count('Uncategorised') ? ['Uncategorised'] : [])];
   return `${banner()}
-  <header class="page-head"><div><p class="eyebrow">${S.all('thoughts').length} saved · copy from any device</p><h1>Thoughts</h1></div></header>
+  <header class="page-head"><div><p class="eyebrow">${all.length} saved · date &amp; time saved automatically · copy from any device</p><h1>Thoughts</h1></div></header>
   <form data-form="addThought" class="card compose">
-    <textarea class="input" name="text" rows="5" placeholder="Write anything — ideas, links, text to copy on another device… (Ctrl+Enter saves)" data-input="draft">${esc(localStorage.getItem('tracker.draft') || '')}</textarea>
+    ${catPicker(lastThoughtCat())}
+    <textarea class="input" name="text" rows="5" placeholder="Write anything — a LinkedIn post, a script, an idea… (Ctrl+Enter saves)" data-input="draft">${esc(localStorage.getItem('tracker.draft') || '')}</textarea>
     <div class="row"><button type="button" class="btn ghost" data-act="pasteThought">${ic('clip', 16)} Paste &amp; save</button><span class="spacer"></span><button class="btn primary">Save</button></div>
   </form>
-  <div class="toolbar"><label class="search grow">${ic('search', 16)}<input class="input" placeholder="Search thoughts" value="${esc(ui.thoughtQ)}" data-input="thoughtQ"></label></div>
+  <div class="toolbar">
+    <div class="chips">${[['all', 'All', all.length], ...cats.map((c) => [c, c, count(c)])].map(([k, l, n]) => `<button class="chip ${ui.thoughtCat === k ? 'active' : ''}" data-act="thoughtCat" data-v="${esc(k)}">${esc(l)} <span class="count">${n}</span></button>`).join('')}</div>
+    <label class="search">${ic('search', 16)}<input class="input" placeholder="Search thoughts" value="${esc(ui.thoughtQ)}" data-input="thoughtQ"></label>
+  </div>
   <div class="thought-list" id="thoughtList">${thoughtListHTML()}</div>`;
+}
+
+/* ---------------- My Book (pushed from Sector Scope after the close) ---------------- */
+const inr = (n) => (n == null ? '—' : '₹' + Math.round(n).toLocaleString('en-IN'));
+const sInr = (n) => (n == null ? '—' : (n > 0 ? '+' : n < 0 ? '−' : '') + inr(Math.abs(n)));
+const sPct = (n) => (n == null ? '—' : `${n > 0 ? '+' : ''}${Number(n).toFixed(2)}%`);
+const sign = (n) => (n > 0 ? 'good' : n < 0 ? 'bad' : '');
+const seriesRet = (pts) => (pts?.length > 1 && pts[0].v ? ((pts[pts.length - 1].v / pts[0].v) - 1) * 100 : null);
+const LINE_COLORS = ['#f59e0b', '#10b981', '#ef4444', '#0ea5e9', '#a855f7', '#64748b'];
+
+function lineChart(series) {
+  const dates = [...new Set(series.flatMap((s) => s.pts.map((p) => p.d)))].sort();
+  if (dates.length < 2) return empty('The chart appears after two sessions.');
+  const W = 640, H = 230, L = 40, R = 10, T = 12, B = 24;
+  const lines = series.map((s) => {
+    const base = s.pts[0]?.v;
+    const m = new Map(s.pts.map((p) => [p.d, base ? (p.v / base) * 100 : null]));
+    return { ...s, vals: dates.map((d) => m.get(d) ?? null) };
+  });
+  const vals = lines.flatMap((l) => l.vals).filter((v) => v != null);
+  let lo = Math.min(...vals), hi = Math.max(...vals);
+  if (hi - lo < 1) { lo -= 0.5; hi += 0.5; }
+  const x = (i) => L + (i * (W - L - R)) / (dates.length - 1);
+  const y = (v) => T + ((hi - v) * (H - T - B)) / (hi - lo);
+  const ticks = Array.from({ length: 4 }, (_, i) => lo + ((hi - lo) * i) / 3);
+  const path = (l) => l.vals.map((v, i) => (v == null ? '' : `${i && l.vals[i - 1] != null ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`)).join('');
+  const xl = [0, Math.floor((dates.length - 1) / 2), dates.length - 1];
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Growth of 100 since the start">
+    ${ticks.map((v) => `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" class="grid"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${v.toFixed(1)}</text>`).join('')}
+    ${y(100) > T && y(100) < H - B ? `<line x1="${L}" x2="${W - R}" y1="${y(100)}" y2="${y(100)}" class="base"/>` : ''}
+    ${xl.map((i) => `<text x="${x(i)}" y="${H - 6}" text-anchor="${i === 0 ? 'start' : i === dates.length - 1 ? 'end' : 'middle'}">${fmtDate(dates[i])}</text>`).join('')}
+    ${lines.slice().reverse().map((l) => `<path d="${path(l)}" fill="none" style="stroke:${l.color}" stroke-width="${l.bold ? 2.6 : 1.6}" ${l.dash ? 'stroke-dasharray="5 4"' : ''} stroke-linejoin="round" stroke-linecap="round"/>`).join('')}
+  </svg>
+  <div class="chart-legend">${lines.map((l) => `<span><i style="background:${l.color}"></i>${esc(l.label)} <b class="${sign(seriesRet(l.pts))}">${sPct(seriesRet(l.pts))}</b></span>`).join('')}</div>`;
+}
+
+function myBookCard() {
+  const s = S.get('mybook', 'mybook');
+  if (!s) return '';
+  const b = s.book || {}, p = s.portfolio || {};
+  const dayRs = (b.positions || []).reduce((a, x) => a + (x.day_rs || 0), 0);
+  const movers = (b.positions || []).slice().sort((a, c) => (c.day_pct ?? 0) - (a.day_pct ?? 0));
+  const mv = (x) => (x ? `<span>${esc(x.sym)} <b class="${sign(x.day_pct)}">${sPct(x.day_pct)}</b></span>` : '');
+  return `<section class="card">
+      <div class="card-head"><h2>My Book</h2><a class="link-btn" href="#/mybook">Details →</a></div>
+      <div class="mini-stats">
+        <div><b>${inr(b.nav)}</b><span>book NAV</span></div>
+        <div><b class="${sign(b.pnl)}">${sPct(b.pnl_pct)}</b><span>book P&amp;L</span></div>
+        <div><b class="${sign(dayRs)}">${sInr(dayRs)}</b><span>last session</span></div>
+      </div>
+      <div class="kv"><span>Total portfolio</span><b class="tnum">${inr(p.nav)} <span class="${sign(p.pnl)}">(${sPct(p.pnl_pct)})</span></b></div>
+      <div class="kv"><span>Best / worst today</span><b class="movers">${mv(movers[0])} ${mv(movers[movers.length - 1])}</b></div>
+      <p class="muted small">Close of ${fmtDate(s.asOf)} · next review ${fmtDate(b.next_review?.review)}</p>
+    </section>`;
+}
+
+function viewMyBook() {
+  const s = S.get('mybook', 'mybook');
+  if (!s) return `${banner()}<header class="page-head"><div><p class="eyebrow">From Sector Scope</p><h1>My Book</h1></div></header>
+    <div class="card">${empty('No data yet. Your PC sends it from Sector Scope every weekday after the close (4:30 PM and 8:30 PM).')}</div>`;
+  const b = s.book || {}, p = s.portfolio || {}, g = s.gap || {}, t = s.twin || {};
+  const pos = (b.positions || []).slice().sort((a, c) => (c.pnl_pct ?? 0) - (a.pnl_pct ?? 0));
+  const dayRs = pos.reduce((a, x) => a + (x.day_rs || 0), 0);
+  const dayPct = b.nav ? (dayRs * 100) / (b.nav - dayRs) : null;
+  const tot = pos.reduce((a, x) => ({ inv: a.inv + (x.invested || 0), val: a.val + (x.value || 0), pnl: a.pnl + (x.pnl || 0) }), { inv: 0, val: 0, pnl: 0 });
+  const nb = b.next_review || {};
+  const zone = (z) => (z ? `<span class="zone ${z === 'hold' ? 'ok' : z === 'on notice' ? 'warn' : 'bad'}">${esc(z)}</span>` : '');
+  const mtfPct = p.mtf_cap ? Math.round(((p.mtf_margin_used || 0) * 100) / p.mtf_cap) : null;
+  const chart = lineChart([
+    { label: 'My Book', pts: b.nav_history || [], color: 'var(--accent)', bold: true },
+    { label: 'Paper twin', pts: t.nav_history || [], color: '#94a3b8', dash: true },
+    ...(b.benchmarks || []).map((x, i) => ({ label: x.label, pts: x.series || [], color: LINE_COLORS[i % LINE_COLORS.length] })),
+  ]);
+  const perfRows = (rows) => rows.map((r) => `<tr><td>${esc(r.period)}</td><td class="r tnum">${inr(r.nav)}</td><td class="r tnum ${sign(r.ret_pct)}">${sPct(r.ret_pct)}</td><td class="r tnum ${sign(r.n500_ret_pct)}">${sPct(r.n500_ret_pct)}</td><td class="r tnum ${sign((r.ret_pct ?? 0) - (r.n500_ret_pct ?? 0))}">${r.ret_pct != null && r.n500_ret_pct != null ? sPct(r.ret_pct - r.n500_ret_pct).replace('%', ' pp') : '—'}</td></tr>`).join('');
+  const tradeList = (xs) => (xs || []).map((x) => `${esc(x.ticker)}${x.qty ? ` ×${x.qty}` : ''}`).join(', ') || '—';
+
+  return `${banner()}
+  <header class="page-head"><div><p class="eyebrow">Sector Scope · close of ${fmtDate(s.asOf)} · updated ${fmtDT(s.syncedAt)}</p><h1>My Book</h1></div>
+    <div class="sync-pill">${esc(b.name || 'My Book')}</div></header>
+
+  <h2 class="section-title">Total portfolio</h2>
+  <section class="stats">
+    ${stat('Portfolio NAV', inr(p.nav), `Money put in ${inr(p.contributed)}`)}
+    ${stat('Total P&amp;L', `<span class="${sign(p.pnl)}">${sInr(p.pnl)}</span>`, sPct(p.pnl_pct))}
+    ${stat('Time-weighted', `<span class="${sign(p.twr_pct)}">${sPct(p.twr_pct)}</span>`, 'return since start')}
+    ${stat('Free cash', inr(p.cash), `${p.contributed ? Math.round((p.cash * 100) / p.contributed) : '—'}% of money in`)}
+    ${stat('MTF margin used', inr(p.mtf_margin_used), `${mtfPct ?? '—'}% of ${inr(p.mtf_cap)} limit`, mtfPct > 90 ? 'bad' : mtfPct > 70 ? 'warn' : '')}
+  </section>
+
+  <h2 class="section-title">My Book · 12 weekly</h2>
+  <section class="stats">
+    ${stat('Book NAV', inr(b.nav), `Started ${fmtDate(b.started)} with ${inr(b.capital)}`)}
+    ${stat('Book P&amp;L', `<span class="${sign(b.pnl)}">${sInr(b.pnl)}</span>`, sPct(b.pnl_pct))}
+    ${stat('Last session', `<span class="${sign(dayRs)}">${sInr(dayRs)}</span>`, sPct(dayPct))}
+    ${stat('vs paper twin', `<span class="${sign(g.gap_pp)}">${g.gap_pp == null ? '—' : `${g.gap_pp > 0 ? '+' : ''}${g.gap_pp.toFixed(2)} pp`}</span>`, `Twin ${sPct(t.pnl_pct)} · gap ${sInr(g.gap_rs)}`)}
+    ${stat('Next review', fmtDate(nb.review) || '—', `${b.reviews_applied ?? 0} reviews done · last ${fmtDate(b.last_review)}`)}
+  </section>
+
+  <section class="card"><div class="card-head"><h2>Growth of ₹100</h2><span class="muted small">My Book vs its paper twin and the indices, since ${fmtDate(b.started)}</span></div>${chart}</section>
+
+  <section class="card"><div class="card-head"><h2>Holdings · ${pos.length}</h2><span class="muted small">Cash in book ${inr(b.cash)} · ranks as of ${fmtDate(b.ranks_as_of)} (hold ≤ ${b.buffer_rank || 24})</span></div>
+    <div class="table-wrap"><table class="table">
+      <thead><tr><th>Stock</th><th class="r">Qty</th><th class="r">Avg</th><th class="r">Last</th><th class="r">Value</th><th class="r">P&amp;L</th><th class="r">P&amp;L %</th><th class="r">Day</th><th class="r">Weight</th><th class="r">Rank</th></tr></thead>
+      <tbody>${pos.map((x) => `<tr>
+        <td><b>${esc(x.sym)}</b>${x.stale ? ' <span class="tag">stale</span>' : ''}<div class="muted small">since ${fmtDate(x.entry_date)}</div></td>
+        <td class="r tnum">${x.qty}</td><td class="r tnum">${x.entry?.toLocaleString('en-IN')}</td><td class="r tnum">${x.last?.toLocaleString('en-IN')}</td>
+        <td class="r tnum">${inr(x.value)}</td><td class="r tnum ${sign(x.pnl)}">${sInr(x.pnl)}</td><td class="r tnum ${sign(x.pnl_pct)}">${sPct(x.pnl_pct)}</td>
+        <td class="r tnum ${sign(x.day_pct)}">${sPct(x.day_pct)}</td><td class="r tnum">${x.weight_pct?.toFixed(1)}%</td>
+        <td class="r nowrap">${x.rank ?? '—'}${x.rank_prev != null && x.rank != null && x.rank_prev !== x.rank ? ` <span class="muted small">${x.rank < x.rank_prev ? '▲' : '▼'}${Math.abs(x.rank - x.rank_prev)}</span>` : ''} ${zone(x.rank_zone)}</td>
+      </tr>`).join('')}</tbody>
+      <tfoot><tr><td>Total</td><td></td><td></td><td></td><td class="r tnum">${inr(tot.val)}</td><td class="r tnum ${sign(tot.pnl)}">${sInr(tot.pnl)}</td><td class="r tnum ${sign(tot.pnl)}">${sPct(tot.inv ? (tot.pnl * 100) / tot.inv : null)}</td><td class="r tnum ${sign(dayRs)}">${sPct(dayPct)}</td><td></td><td></td></tr></tfoot>
+    </table></div>
+  </section>
+
+  ${(p.positions || []).length ? `<section class="card"><div class="card-head"><h2>Other positions · manual &amp; MTF</h2><span class="muted small">Borrowed ${inr(p.manual?.borrowed)} · own equity ${inr(p.manual?.equity)}</span></div>
+    <div class="table-wrap"><table class="table">
+      <thead><tr><th>Stock</th><th class="r">Qty</th><th class="r">Buy</th><th class="r">Last</th><th class="r">Value</th><th class="r">Own money</th><th class="r">P&amp;L</th><th class="r">On own money</th><th class="r">Day</th></tr></thead>
+      <tbody>${p.positions.map((x) => `<tr>
+        <td><b>${esc(x.sym)}</b> ${x.mtf ? `<span class="tag">MTF ${x.leverage}x</span>` : ''}<div class="muted small">${fmtDate(x.date)}</div></td>
+        <td class="r tnum">${x.qty}</td><td class="r tnum">${x.entry?.toLocaleString('en-IN')}</td><td class="r tnum">${x.last?.toLocaleString('en-IN')}</td>
+        <td class="r tnum">${inr(x.value)}</td><td class="r tnum">${inr(x.equity)}</td><td class="r tnum ${sign(x.pnl)}">${sInr(x.pnl)}</td>
+        <td class="r tnum ${sign(x.pnl_pct)}">${sPct(x.pnl_pct)}</td><td class="r tnum ${sign(x.day_pct)}">${sPct(x.day_pct)}</td>
+      </tr>`).join('')}</tbody></table></div>
+  </section>` : ''}
+
+  <div class="grid2">
+    <section class="card"><div class="card-head"><h2>Benchmarks since start</h2><span class="muted small">Total portfolio vs indices</span></div>
+      <div class="hbars">${[{ label: 'My portfolio (TWR)', ret_pct: p.twr_pct, me: true }, ...(p.benchmarks || [])].map((x) => `<div class="kv ${x.me ? 'me' : ''}"><span>${esc(x.label)}</span><b class="tnum ${sign(x.ret_pct)}">${sPct(x.ret_pct)}</b></div>`).join('')}</div>
+    </section>
+    <section class="card"><div class="card-head"><h2>Weekly &amp; monthly</h2><span class="muted small">Total portfolio vs Nifty 500</span></div>
+      <div class="table-wrap"><table class="table"><thead><tr><th>Period</th><th class="r">NAV</th><th class="r">Return</th><th class="r">Nifty 500</th><th class="r">vs it</th></tr></thead>
+      <tbody>${perfRows([...(p.weekly || [])].reverse())}${(p.monthly || []).length ? `<tr><td colspan="5" class="group-cell">Monthly</td></tr>${perfRows([...(p.monthly || [])].reverse())}` : ''}</tbody></table></div>
+    </section>
+  </div>
+
+  <div class="grid2">
+    <section class="card"><div class="card-head"><h2>Reviews</h2><span class="muted small">${esc(b.rules?.review_rule || '')}</span></div>
+      ${(b.log || []).slice().reverse().map((e) => `<div class="log-row"><div class="row"><b>${fmtDate(e.date)}</b><span class="tag">${esc(e.reason || '')}</span></div><div class="small"><span class="bad">Sold:</span> ${tradeList(e.sold)}</div><div class="small"><span class="good">Bought:</span> ${tradeList(e.bought)}</div></div>`).join('') || empty('No reviews yet.')}
+    </section>
+    <section class="card"><div class="card-head"><h2>Ledger</h2><span class="muted small">Manual, MTF and deposits</span></div>
+      ${(p.ledger || []).map((e) => `<div class="log-row row small"><b class="nowrap">${fmtDate(e.date)}</b><span class="tag">${esc(e.type)}</span><span>${e.type === 'deposit' ? `${inr(e.amount)}${e.note ? ' · ' + esc(e.note) : ''}` : `${esc(e.sym || '')} ${e.qty ?? ''} @ ${e.price ?? ''}${e.mtf ? ` · MTF ${e.leverage}x` : ''}`}</span></div>`).join('') || empty('No entries.')}
+    </section>
+  </div>
+  <p class="muted small">${esc(b.rules?.signal ? `Signal: ${b.rules.signal}. ` : '')}${esc(b.rules?.universe || '')}. ${esc(p.note || '')} Prices are ${esc(s.priceSource || 'end-of-day')}; nothing here changes during market hours.</p>`;
 }
 
 function viewBooks() {
@@ -619,7 +777,7 @@ function viewSetupKey() {
 }
 
 /* ---------------- router & render ---------------- */
-const ROUTES = { '': viewDashboard, tasks: viewTasks, insta: viewInsta, thoughts: viewThoughts, books: viewBooks, ideas: viewIdeas, settings: viewSettings };
+const ROUTES = { '': viewDashboard, tasks: viewTasks, insta: viewInsta, mybook: viewMyBook, thoughts: viewThoughts, books: viewBooks, ideas: viewIdeas, settings: viewSettings };
 const route = () => location.hash.replace(/^#\/?/, '').split(/[?#]/)[0];
 
 function render() {
@@ -627,7 +785,7 @@ function render() {
   document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === r));
   const view = $('#view');
   view.innerHTML = S.status.needsKey ? viewSetupKey() : ROUTES[r]();
-  document.title = `${{ '': 'Dashboard', tasks: 'To-Do', insta: 'Instagram', thoughts: 'Thoughts', books: 'Bookshelf', ideas: 'Ideas', settings: 'Settings' }[r]} · My Tracker`;
+  document.title = `${{ '': 'Dashboard', tasks: 'To-Do', insta: 'Instagram', mybook: 'My Book', thoughts: 'Thoughts', books: 'Bookshelf', ideas: 'Ideas', settings: 'Settings' }[r]} · My Tracker`;
 }
 
 // Don't yank the page out from under someone typing; re-render once they leave the field.
@@ -701,9 +859,11 @@ function ideaModal(x = {}) {
   });
 }
 
-function saveThought(text) {
+function saveThought(text, category) {
   if (!text.trim()) return;
-  S.put('thoughts', { text: text.replace(/\s+$/, ''), pinned: false });
+  category ||= lastThoughtCat();
+  S.put('thoughts', { text: text.replace(/\s+$/, ''), category, pinned: false });
+  try { localStorage.setItem('tracker.thoughtCat', category); } catch {}
   try { localStorage.removeItem('tracker.draft'); } catch {}
   toast('Saved');
 }
@@ -719,11 +879,11 @@ const ACTS = {
   pinThought: (el) => { const x = byId('thoughts', el); if (x) S.update('thoughts', x.id, { pinned: !x.pinned }); },
   editThought: (el) => {
     const x = byId('thoughts', el);
-    if (x) openModal('Edit thought', `<textarea class="input" name="text" rows="10">${esc(x.text)}</textarea>`, (v) => { if (v.text.trim()) S.update('thoughts', x.id, { text: v.text, editedAt: S.nowISO() }); });
+    if (x) openModal('Edit thought', `${field('Category', `<select class="input" name="category">${opts(THOUGHT_CATS, x.category || '')}${x.category ? '' : '<option value="" selected>Uncategorised</option>'}</select>`)}<textarea class="input" name="text" rows="10">${esc(x.text)}</textarea><p class="muted small">Saved ${fmtDT(x.createdAt)}</p>`, (v) => { if (v.text.trim()) S.update('thoughts', x.id, { text: v.text, category: v.category || null, editedAt: S.nowISO() }); });
   },
   delThought: (el) => { const x = byId('thoughts', el); if (x && confirm('Delete this thought?')) S.remove('thoughts', x); },
   pasteThought: async () => {
-    try { const text = await navigator.clipboard.readText(); if (text.trim()) saveThought(text); else toast('Clipboard is empty'); }
+    try { const text = await navigator.clipboard.readText(); if (text.trim()) { saveThought(text, $('[data-form=addThought] [name=category]:checked')?.value); render(); } else toast('Clipboard is empty'); }
     catch { toast('Clipboard access was blocked. Paste into the box instead.'); }
   },
   addBook: () => bookModal(),
@@ -746,6 +906,7 @@ const ACTS = {
   delIdea: (el) => { const x = byId('ideas', el); if (x && confirm(`Delete idea "${x.title}"?`)) S.remove('ideas', x); },
   copyScript: (el) => { const x = byId('ideas', el); if (x?.script) copyText(x.script); },
   ideaFilter: (el) => { ui.ideaFilter = el.dataset.v; render(); },
+  thoughtCat: (el) => { ui.thoughtCat = el.dataset.v; render(); },
   delReel: (el) => { const r = byId('reels', el); if (r && confirm('Remove this manual entry?')) S.remove('reels', r); },
   copyLink: () => copyText(deviceLink()),
   copyKey: () => copyText(S.status.key),
@@ -775,7 +936,7 @@ const FORMS = {
     render();
     $('[data-form=addTask] [name=title]')?.focus();
   },
-  addThought: (f) => { saveThought(new FormData(f).get('text') || ''); render(); },
+  addThought: (f) => { const fd = new FormData(f); saveThought(fd.get('text') || '', fd.get('category')); render(); },
   manualReel: (f) => {
     const v = vals(f);
     if (!v.date) return;

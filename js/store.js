@@ -6,7 +6,7 @@ import { firebaseConfig } from './config.js';
 const FB_VER = '10.12.2';
 const KEY_LS = 'tracker.vaultKey';
 const LOCAL_LS = 'tracker.localBuckets';
-const SINGLE_BUCKET = new Set(['books', 'settings']);
+const SINGLE_BUCKET = new Set(['books', 'settings', 'mybook']);
 
 const listeners = new Set();
 let buckets = {};
