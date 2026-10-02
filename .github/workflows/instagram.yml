@@ -1,0 +1,37 @@
+name: Instagram auto-update
+
+on:
+  schedule:
+    - cron: '0 18 * * *' # 11:30 PM IST every night
+  workflow_dispatch: # "Run workflow" button for an instant update
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Fetch reels from Apify and save to Firestore
+        run: node scripts/fetch-instagram.mjs
+        env:
+          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+          VAULT_KEY: ${{ secrets.VAULT_KEY }}
+      # GitHub pauses scheduled jobs after 60 days without commits, so commit a heartbeat now and then.
+      - name: Keep the nightly schedule alive
+        if: always()
+        run: |
+          last=$(git log -1 --format=%ct)
+          if [ $(( $(date +%s) - last )) -gt $(( 45 * 86400 )) ]; then
+            git config user.name "tracker-bot"
+            git config user.email "tracker-bot@users.noreply.github.com"
+            date -u +%FT%TZ > .keepalive
+            git add .keepalive
+            git commit -m "Keep nightly Instagram update active"
+            git push
+          fi

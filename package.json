@@ -1,0 +1,6 @@
+{
+  "name": "my-tracker",
+  "private": true,
+  "type": "module",
+  "description": "Personal tracker. No build step: open index.html via any static host."
+}

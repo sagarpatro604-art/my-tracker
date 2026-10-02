@@ -1,0 +1,9 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Replace YOUR_KEY with the key shown in the tracker's Settings page.
+    match /vaults/{vault}/buckets/{bucket} {
+      allow read, write: if vault == 'YOUR_KEY';
+    }
+  }
+}
