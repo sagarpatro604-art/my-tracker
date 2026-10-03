@@ -1,5 +1,5 @@
 import * as S from './store.js';
-import { INSTA } from './config.js';
+import { INSTA, USERS } from './config.js';
 import { parseTracker, exportExcel } from './excel.js';
 
 /* ---------------- helpers ---------------- */
@@ -62,6 +62,7 @@ const ICONS = {
   arrowR: '<path d="M5 12h14M13 6l6 6-6 6"/>',
   file: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/>',
   film: '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M7 3v18M17 3v18M3 8h4M17 8h4M3 16h4M17 16h4"/>',
+  users: '<path d="M16 19v-1a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v1"/><circle cx="9" cy="7" r="3.5"/><path d="M22 19v-1a4 4 0 0 0-3-3.9M16 3.2a3.5 3.5 0 0 1 0 7.6"/>',
   flag: '<path d="M5 21V4"/><path d="M5 4h11l-2 4 2 4H5"/>',
   chat: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12Z"/>',
   chevD: '<path d="m6 9 6 6 6-6"/>',
@@ -77,7 +78,7 @@ const PRIO_RANK = { highest: 0, high: 1, med: 2, low: 3, lowest: 4 };
 const THOUGHT_CATS = ['LinkedIn posts', 'Instagram scripts', 'Ideas', 'Instagram inspo', 'Scripting ideas'];
 const lastThoughtCat = () => { try { return localStorage.getItem('tracker.thoughtCat') || 'Ideas'; } catch { return 'Ideas'; } };
 
-const ui = { sched: { mode: 'week', anchor: today(), filter: 'all', scroll: undefined }, todoTab: 'today', searchQ: '', issueId: null, ideaView: 'board', board: { view: 'board', q: '', quick: new Set(), epic: 'all', type: 'all', group: 'none', showOldDone: false, collapsed: new Set() }, taskFilter: 'today', taskQ: '', thoughtQ: '', thoughtCat: 'all', bookFilter: 'reading', ideaFilter: 'all', ideaQ: '', expanded: new Set() };
+const ui = { sched: { mode: 'week', anchor: today(), filter: 'all', scroll: undefined }, todoTab: 'today', searchQ: '', issueId: null, ideaView: 'board', loginUser: null, loginErr: '', loginBusy: false, board: { scope: 'mine', who: 'all', view: 'board', q: '', quick: new Set(), epic: 'all', type: 'all', group: 'none', showOldDone: false, collapsed: new Set() }, taskFilter: 'today', taskQ: '', thoughtQ: '', thoughtCat: 'all', bookFilter: 'reading', ideaFilter: 'all', ideaQ: '', expanded: new Set() };
 
 /* ---------------- toast, clipboard, modal ---------------- */
 let toastTimer;
@@ -305,7 +306,7 @@ function schedLabel() {
 function schedEvents(from, to) {
   const inRange = (d) => d && d >= from && d <= to;
   const ev = [];
-  for (const x of S.all('tasks')) if (inRange(x.due)) ev.push({ kind: 'task', id: x.id, d: x.due, time: x.time, title: x.title, done: x.done, sub: x.category });
+  for (const x of myTasks()) if (inRange(x.due)) ev.push({ kind: 'task', id: x.id, d: x.due, time: x.time, title: x.title, done: x.done, sub: x.category });
   for (const r of S.all('reels')) if (inRange(r.date)) ev.push({ kind: 'reel', id: r.id, d: r.date, time: r.time, title: r.caption || 'Reel', url: r.url, sub: r.kind === 'carousel' ? 'Carousel' : 'Reel posted' });
   for (const i of S.all('ideas')) if (inRange(i.planDate) && i.status !== 'Posted') ev.push({ kind: 'idea', id: i.id, d: i.planDate, time: i.planTime, title: i.title, sub: i.type || 'Planned content' });
   const rv = S.get('mybook', 'mybook')?.book?.next_review?.review;
@@ -414,7 +415,7 @@ function todoCard(x) {
 }
 
 function todoPanel() {
-  const g = taskBuckets(S.all('tasks'));
+  const g = taskBuckets(myTasks());
   const tab = ui.todoTab;
   const list = tab === 'done' ? g.done.slice().sort((a, b) => (b.doneAt || '').localeCompare(a.doneAt || '')).slice(0, 40) : sortTasks(g[tab] || []);
   const badge = (k) => (k === 'today' ? g.today.filter((x) => !x.done).length : g[k].length);
@@ -431,50 +432,91 @@ function todoPanel() {
 /* ---------------- Dashboard ---------------- */
 const PROMO_ART = `<svg viewBox="0 0 120 120" aria-hidden="true"><circle cx="60" cy="60" r="44" style="fill:var(--accent-soft)"/><rect x="34" y="40" width="52" height="40" rx="10" style="fill:none;stroke:var(--accent);stroke-width:4"/><circle cx="60" cy="60" r="10" style="fill:none;stroke:var(--accent);stroke-width:4"/><circle cx="76" cy="49" r="2.6" style="fill:var(--accent)"/><path d="M96 22l3 7 7 3-7 3-3 7-3-7-7-3 7-3z" style="fill:var(--accent-2)"/><path d="M22 86l2 4.5 4.5 2-4.5 2-2 4.5-2-4.5-4.5-2 4.5-2z" style="fill:var(--accent)"/></svg>`;
 
+function readingCard(reading) {
+  return `<section class="card">
+      <div class="card-head"><h2>Currently reading</h2><a class="link-btn" href="#/books">Bookshelf ${ic('chevR', 14)}</a></div>
+      ${reading.length ? `<div class="reading-list">${reading.map((b) => { const p = bookProgress(b); return `<div class="reading"><div class="spine" style="--h:${hue(b.title)}"></div><div class="grow"><div class="book-title">${esc(b.title)}</div><div class="muted small">${esc(b.author || '')}${b.totalPages ? ` · page ${b.currentPage || 0} of ${b.totalPages}` : ''}</div><div class="progress"><span style="width:${p ?? 0}%"></span></div></div><b class="tnum">${p == null ? '' : p + '%'}</b></div>`; }).join('')}</div>` : empty('No book in progress. Add one on the Bookshelf.')}
+    </section>`;
+}
+// Both people's company work at a glance.
+function teamCard(cls = '') {
+  const co = allTasks().filter(isCo);
+  const wk = weekStart(today());
+  return `<section class="card ${cls}">
+    <div class="card-head"><h2>Team · company work</h2><button class="link-btn" data-act="openCompany">Open board ${ic('chevR', 14)}</button></div>
+    <div class="team">${USERS.map((u) => {
+      const xs = co.filter((x) => assigneeOf(x) === u.id);
+      const n = (st) => xs.filter((x) => statusOf(x) === st).length;
+      const doneWk = xs.filter((x) => x.done && x.doneAt && ymd(new Date(x.doneAt)) >= wk).length;
+      const prog = xs.filter((x) => statusOf(x) === 'progress').sort(byOrder).slice(0, 3);
+      return `<div class="team-row">${avatar(u.id, 'lg')}<div class="grow">
+        <div class="row"><b>${esc(u.name)}</b><span class="muted small">${n('todo')} to do · ${n('progress')} in progress · ${doneWk} done this week</span></div>
+        ${prog.map((x) => `<button class="team-task" data-act="openIssue" data-id="${x.id}"><span class="kc-key">${esc(x.key || '')}</span> ${esc(x.title)}</button>`).join('') || '<span class="muted small">Nothing in progress</span>'}
+      </div></div>`;
+    }).join('')}</div>
+  </section>`;
+}
+function teamPromo() {
+  const co = allTasks().filter(isCo);
+  const mine = co.filter((x) => assigneeOf(x) === ME() && !x.done).length;
+  return `<section class="promo c-promo">
+      <div class="promo-art">${PROMO_ART}</div>
+      <h3>Company <em>board</em></h3>
+      <p>${mine} open for you · ${co.filter((x) => statusOf(x) === 'progress').length} in progress across the team</p>
+      <button class="btn primary pill" data-act="openCompany">Open board</button>
+    </section>`;
+}
+
 function viewDashboard() {
   const t = today();
-  const tasks = S.all('tasks');
+  const tasks = myTasks();
   const g = taskBuckets(tasks);
+  const insta = hasFeat('insta'), book = hasFeat('mybook');
+  const coOpen = S.all('ctasks').filter((x) => statusOf(x) === 'progress').length;
   const left = g.today.filter((x) => !x.done).length;
   const acc = accuracy(tasks);
   const ig = instaStats();
-  const mb = S.get('mybook', 'mybook');
+  const mb = book ? S.get('mybook', 'mybook') : null;
   const reading = S.all('books').filter((b) => b.status === 'reading');
   const thoughts = sortedThoughts().slice(0, 3);
   const postedToday = ig.byDay.has(t);
   const summary = [
     `${left} task${left === 1 ? '' : 's'} left today`,
     g.overdue.length ? `${g.overdue.length} overdue` : null,
-    postedToday ? 'reel posted' : 'no reel yet today',
+    insta ? (postedToday ? 'reel posted' : 'no reel yet today') : null,
     mb ? `My Book ${sPct(mb.book?.pnl_pct)}` : null,
+    `${coOpen} company issue${coOpen === 1 ? '' : 's'} in progress`,
   ].filter(Boolean).join(' · ');
+  const tail = [insta ? teamCard() : null, mb ? myBookCard() : null, readingCard(reading)].filter(Boolean);
+  const tailCls = tail.length === 3 ? 'c-third' : tail.length === 2 ? 'c-half' : 'c-full';
   const d = new Date();
 
   return `${banner()}
   <div class="dash">
     <section class="hero c-hero">
       <div class="hero-meta"><span class="hero-chip">PLAYBOOK</span><span>• ${DAY[d.getDay()]} ${d.getDate()} ${MON[d.getMonth()]} • <span id="clock">${clockText()}</span></span></div>
-      <h1>${greeting()}, Sagar</h1>
+      <h1>${greeting()}, ${esc(meUser().name)}</h1>
       <p>${summary}.</p>
       <div class="hero-stats">
         <span><b>${pctText(acc.week.pct)}</b> week accuracy</span>
-        <span><b>${ig.streak}</b> day posting streak</span>
+        ${insta ? `<span><b>${ig.streak}</b> day posting streak</span>` : `<span><b>${coOpen}</b> company in progress</span>`}
         <span><b>${acc.perfect}</b> perfect days</span>
       </div>
     </section>
 
     <div class="tiles c-tiles">
-      <a class="tile" href="#/mybook">${ic('chart', 18)}<span class="grow"><b>My Book</b><small>${mb ? `${inr(mb.book?.nav)} · ${sPct(mb.book?.pnl_pct)}` : 'From Sector Scope'}</small></span>${ic('arrowR', 18)}</a>
+      ${book ? `<a class="tile" href="#/mybook">${ic('chart', 18)}<span class="grow"><b>My Book</b><small>${mb ? `${inr(mb.book?.nav)} · ${sPct(mb.book?.pnl_pct)}` : 'From Sector Scope'}</small></span>${ic('arrowR', 18)}</a>`
+        : `<button class="tile" data-act="openCompany">${ic('users', 18)}<span class="grow"><b>Company board</b><small>${S.all('ctasks').filter((x) => !x.done).length} open issues</small></span>${ic('arrowR', 18)}</button>`}
       <a class="tile" href="#/thoughts">${ic('pen', 18)}<span class="grow"><b>Thoughts</b><small>${S.all('thoughts').length} saved</small></span>${ic('arrowR', 18)}</a>
       <a class="tile wide glow" href="#/ideas">${ic('bulb', 22)}<span class="grow"><b>Content Studio <em>· powered by you</em></b><small class="caps">Scripts | Inspo | Ideas</small></span>${ic('arrowR', 18)}</a>
     </div>
 
-    <section class="promo c-promo">
+    ${insta ? `    <section class="promo c-promo">
       <div class="promo-art">${PROMO_ART}</div>
       <h3>${postedToday ? 'Posted today. <em>Keep it going!</em>' : 'Ready to <em>post</em> today?'}</h3>
       <p>${ig.streak}-day streak · ${ig.weekPosted}/${ig.weekSoFar} this week</p>
       <a class="btn primary pill" href="#/insta">${postedToday ? 'See stats' : "Let's go"}</a>
-    </section>
+    </section>` : teamPromo()}
 
     <section class="card c-sched">${scheduleHTML()}</section>
     ${todoPanel()}
@@ -497,7 +539,7 @@ function viewDashboard() {
       <div class="thought-list compact">${thoughts.map(thoughtCard).join('') || empty('Your thoughts show up here, ready to copy on any device.')}</div>
     </section>
 
-    <section class="card c-third">
+    ${insta ? `    <section class="card c-third">
       <div class="card-head"><h2>Instagram this week</h2><a class="link-btn" href="#/insta">Details ${ic('chevR', 14)}</a></div>
       ${weekStrip(ig)}
       <div class="mini-stats">
@@ -506,14 +548,9 @@ function viewDashboard() {
         <div><b>${num(ig.avgPlays)}</b><span>avg plays</span></div>
       </div>
       <p class="muted small">${ig.sync?.lastRun ? `Auto-updated ${fmtDT(ig.sync.lastRun)}` : 'Auto-update not connected yet'}</p>
-    </section>
+    </section>` : teamCard('c-third')}
 
-    ${myBookCard('c-half')}
-
-    <section class="card ${mb ? 'c-half' : 'c-full'}">
-      <div class="card-head"><h2>Currently reading</h2><a class="link-btn" href="#/books">Bookshelf ${ic('chevR', 14)}</a></div>
-      ${reading.length ? `<div class="reading-list">${reading.map((b) => { const p = bookProgress(b); return `<div class="reading"><div class="spine" style="--h:${hue(b.title)}"></div><div class="grow"><div class="book-title">${esc(b.title)}</div><div class="muted small">${esc(b.author || '')}${b.totalPages ? ` · page ${b.currentPage || 0} of ${b.totalPages}` : ''}</div><div class="progress"><span style="width:${p ?? 0}%"></span></div></div><b class="tnum">${p == null ? '' : p + '%'}</b></div>`; }).join('')}</div>` : empty('No book in progress. Add one on the Bookshelf.')}
-    </section>
+    ${tail.map((h) => h.replace('class="card "', `class="card ${tailCls}"`).replace('class="card"', `class="card ${tailCls}"`)).join('')}
   </div>`;
 }
 
@@ -523,7 +560,7 @@ function searchResults(q) {
   if (q.length < 2) return [];
   const has = (s) => String(s || '').toLowerCase().includes(q);
   const out = [];
-  for (const x of S.all('tasks')) if (has(x.title) || has(x.category) || has(x.notes)) out.push(['tasks', 'Task', x.title, x.due ? relDate(x.due) : '']);
+  for (const x of allTasks()) if (has(x.title) || has(x.category) || has(x.notes)) out.push(['tasks', 'Task', x.title, x.due ? relDate(x.due) : '']);
   for (const x of S.all('thoughts')) if (has(x.text)) out.push(['thoughts', x.category || 'Thought', (x.text || '').split('\n')[0], fmtDate(ymd(new Date(x.createdAt)))]);
   for (const x of S.all('ideas')) if (has(x.title) || has(x.script)) out.push(['ideas', 'Idea', x.title, x.status || '']);
   for (const x of S.all('books')) if (has(x.title) || has(x.author)) out.push(['books', 'Book', x.title, x.author || '']);
@@ -541,28 +578,34 @@ function closeSearch() {
 const NAV = [['', 'Dashboard', 'home'], ['schedule', 'Schedule', 'calendar'], ['tasks', 'To-Do', 'todo'], ['insta', 'Instagram', 'insta'], ['mybook', 'My Book', 'chart'], ['thoughts', 'Thoughts', 'pen'], ['books', 'Bookshelf', 'book'], ['ideas', 'Content ideas', 'bulb']];
 const BOTTOM_NAV = ['', 'schedule', 'tasks', 'thoughts', 'mybook'];
 function buildNav() {
+  const allowed = ([r]) => !['insta', 'mybook'].includes(r) || hasFeat(r);
   const link = ([r, l, i]) => `<a href="#/${r}" data-nav="${r}" data-tip="${l}">${ic(i, 20)}<span class="lbl">${l}</span></a>`;
-  $('#rail').innerHTML = NAV.map(link).join('') + `<div class="rail-foot">${link(['settings', 'Settings', 'sliders'])}</div>`;
-  $('#bottombar').innerHTML = BOTTOM_NAV.map((r) => NAV.find((n) => n[0] === r)).map(([r, l, i]) => `<a href="#/${r}" data-nav="${r}">${ic(i, 22)}<span>${r === '' ? 'Home' : l}</span></a>`).join('');
+  $('#rail').innerHTML = NAV.filter(allowed).map(link).join('') + `<div class="rail-foot">${link(['settings', 'Settings', 'sliders'])}</div>`;
+  $('#bottombar').innerHTML = BOTTOM_NAV.map((r) => NAV.find((n) => n[0] === r)).filter(allowed).concat(hasFeat('mybook') ? [] : [['books', 'Books', 'book']]).map(([r, l, i]) => `<a href="#/${r}" data-nav="${r}">${ic(i, 22)}<span>${r === '' ? 'Home' : l}</span></a>`).join('');
   try { if (localStorage.getItem('tracker.rail') === 'open' && innerWidth > 820) $('#shell').classList.add('rail-open'); } catch {}
+  const av = $('.topbar .avatar');
+  if (av) { const u = meUser(); av.textContent = S.status.user ? u.initials : ''; av.style.background = S.status.user ? u.color : ''; av.style.color = S.status.user ? '#17112a' : ''; av.title = S.status.user ? `${u.name} · settings` : ''; }
 }
 
 function newTaskModal(due, time) {
   openModal('New task', `
     ${field('Summary', `<input class="input" name="title" required autocomplete="off">`)}
     <div class="form-grid">
+      ${field('Board', `<select class="input" name="mode">${opts([['personal', 'Personal (only you)'], ['company', 'Company (both of you)']], ui.board.scope === 'company' ? 'company' : ui.board.scope === 'personal' ? 'personal' : taskMode())}</select>`)}
+      ${field('Assignee (company)', `<select class="input" name="assignee">${opts(USERS.map((u) => [u.id, u.name]), ME())}</select>`)}
       ${field('Status', `<select class="input" name="status">${opts(TASK_COLS.map((c) => [c.id, c.label]), 'todo')}</select>`)}
       ${field('Type', `<select class="input" name="type">${opts(ISSUE_TYPES.map(([k, l]) => [k, l]), 'task')}</select>`)}
       ${field('Date', `<input class="input" type="date" name="due" value="${esc(due || today())}">`)}
       ${field('Time', `<input class="input" type="time" name="time" value="${esc(time || '')}">`)}
       ${field('Priority', `<select class="input" name="priority">${opts(PRIOS, 'med')}</select>`)}
-      ${field('Epic', `<input class="input" name="category" list="epicListNew" placeholder="None"><datalist id="epicListNew">${[...new Set(S.all('tasks').map((y) => y.category).filter(Boolean))].map((e) => `<option value="${esc(e)}">`).join('')}</datalist>`)}
+      ${field('Epic', `<input class="input" name="category" list="epicListNew" placeholder="None"><datalist id="epicListNew">${[...new Set(allTasks().map((y) => y.category).filter(Boolean))].map((e) => `<option value="${esc(e)}">`).join('')}</datalist>`)}
       ${field('Story points', `<input class="input" type="number" min="0" name="points">`)}
     </div>
     ${field('Description', `<textarea class="input" name="description" rows="3"></textarea>`)}`,
   (v) => {
     if (!v.title.trim()) return;
-    const x = createTask({ title: v.title.trim(), status: v.status, type: v.type, due: v.due || null, time: v.time || null, priority: v.priority, category: v.category.trim() || null, points: v.points === '' ? null : +v.points, description: v.description.trim() || null });
+    setTaskMode(v.mode);
+    const x = createTask({ assignee: v.assignee, title: v.title.trim(), status: v.status, type: v.type, due: v.due || null, time: v.time || null, priority: v.priority, category: v.category.trim() || null, points: v.points === '' ? null : +v.points, description: v.description.trim() || null }, v.mode);
     toast(`${x.key} created`);
   }, 'Create');
 }
@@ -581,7 +624,7 @@ function taskBuckets(tasks) {
 const TASK_FILTERS = [['today', 'Today'], ['upcoming', 'Upcoming'], ['overdue', 'Overdue'], ['anytime', 'No date'], ['done', 'Done'], ['all', 'All']];
 
 function taskListHTML() {
-  const groups = taskBuckets(S.all('tasks'));
+  const groups = taskBuckets(myTasks());
   let list = groups[ui.taskFilter] || [];
   const q = ui.taskQ.trim().toLowerCase();
   if (q) list = list.filter((x) => `${x.title} ${x.category || ''} ${x.notes || ''}`.toLowerCase().includes(q));
@@ -625,18 +668,41 @@ const typeIcon = (t) => `<span class="ti" style="background:${t[3]}" title="${t[
 const prioIcon = (p = 'med') => `<span class="pi p-${p}" title="${PRIO_LABEL[p] || 'Medium'} priority"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="${PRIO_PATH[p] || PRIO_PATH.med}"/></svg></span>`;
 const byOrder = (a, b) => (a.order ?? Date.parse(a.createdAt || 0)) - (b.order ?? Date.parse(b.createdAt || 0));
 
-function keyNum(x) { return +String(x.key || '').split('-')[1] || 0; }
-function nextKey() {
-  const n = Math.max(S.get('settings', 'seq')?.task || 0, 0, ...S.all('tasks').map(keyNum)) + 1;
-  S.put('settings', { id: 'seq', task: n });
-  return `PB-${n}`;
+/* ---- people: personal tasks live in each person's space ('tasks'), company tasks in the shared one ('ctasks') ---- */
+const ME = () => S.status.user;
+const userOf = (id) => USERS.find((u) => u.id === id) || null;
+const meUser = () => userOf(ME()) || USERS[0];
+const hasFeat = (f) => (meUser().features || []).includes(f);
+const avatar = (id, cls = '') => { const u = userOf(id) || meUser(); return `<span class="kav ${cls}" style="background:${u.color}" title="${esc(u.name)}">${esc(u.initials)}</span>`; };
+const isCo = (x) => x._col === 'ctasks';
+const assigneeOf = (x) => (isCo(x) ? x.assignee || x.owner : ME());
+function allTasks() {
+  return [...S.all('tasks').map((x) => ({ ...x, _col: 'tasks' })), ...S.all('ctasks').map((x) => ({ ...x, _col: 'ctasks' }))];
 }
-function createTask(f) {
+// "Mine": my personal tasks plus company tasks assigned to me.
+const myTasks = () => allTasks().filter((x) => !isCo(x) || assigneeOf(x) === ME());
+const getTask = (id) => allTasks().find((x) => x.id === id);
+const updTask = (x, patch) => S.update(x._col || 'tasks', x.id, patch);
+const delTaskItem = (x) => S.remove(x._col || 'tasks', x);
+const taskMode = () => { try { return localStorage.getItem('tracker.taskMode') || 'personal'; } catch { return 'personal'; } };
+const setTaskMode = (m) => { try { localStorage.setItem('tracker.taskMode', m); } catch {} };
+const personalPrefix = () => (ME() === 'sagar' ? 'PB' : (meUser().initials || 'MY').toUpperCase());
+
+function keyNum(x) { return +String(x.key || '').split('-')[1] || 0; }
+function nextKey(col = 'tasks') {
+  const setCol = col === 'ctasks' ? 'csettings' : 'settings';
+  const n = Math.max(S.get(setCol, 'seq')?.task || 0, 0, ...S.all(col).map(keyNum)) + 1;
+  S.put(setCol, { id: 'seq', task: n });
+  return `${col === 'ctasks' ? 'CO' : personalPrefix()}-${n}`;
+}
+function createTask(f, mode = 'personal') {
   const status = f.status || 'todo';
-  return S.put('tasks', {
-    type: 'task', priority: 'med', ...f, key: nextKey(), status,
+  const col = mode === 'company' ? 'ctasks' : 'tasks';
+  const people = col === 'ctasks' ? { owner: ME(), reporter: ME(), assignee: f.assignee || ME() } : {};
+  return S.put(col, {
+    type: 'task', priority: 'med', ...f, ...people, key: nextKey(col), status,
     done: status === 'done', doneAt: status === 'done' ? S.nowISO() : null, order: Date.now(),
-    log: [{ at: S.nowISO(), text: `Created in ${STATUS_LABEL[status]}` }],
+    log: [{ at: S.nowISO(), by: ME(), text: `Created in ${STATUS_LABEL[status]}${col === 'ctasks' ? ' (company)' : ''}` }],
   });
 }
 // Older tasks get a key, a status and an order once, oldest first.
@@ -644,10 +710,10 @@ function ensureKeys() {
   const missing = S.all('tasks').filter((t) => !t.key).sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
   if (!missing.length) return;
   let n = Math.max(S.get('settings', 'seq')?.task || 0, 0, ...S.all('tasks').map(keyNum));
-  S.putMany('tasks', missing.map((t) => ({ ...t, key: `PB-${++n}`, status: statusOf(t), order: t.order ?? (Date.parse(t.createdAt || '') || Date.now()) })));
+  S.putMany('tasks', missing.map((t) => ({ ...t, key: `${personalPrefix()}-${++n}`, status: statusOf(t), order: t.order ?? (Date.parse(t.createdAt || '') || Date.now()) })));
   S.put('settings', { id: 'seq', task: n });
 }
-function logEntry(x, text) { return [...(x.log || []), { at: S.nowISO(), text }].slice(-80); }
+function logEntry(x, text) { return [...(x.log || []), { at: S.nowISO(), by: ME(), text }].slice(-80); }
 function moveTask(x, to, extra = {}) {
   const from = statusOf(x);
   const patch = { ...extra, status: to };
@@ -656,12 +722,15 @@ function moveTask(x, to, extra = {}) {
     patch.doneAt = to === 'done' ? S.nowISO() : null;
     patch.log = logEntry(x, `${STATUS_LABEL[from]} → ${STATUS_LABEL[to]}`);
   }
-  return S.update('tasks', x.id, patch);
+  return updTask(x, patch);
 }
 
 function boardTasks() {
   const t = today(), wkEnd = addDays(weekStart(t), 6), q = ui.board.q.trim().toLowerCase(), Q = ui.board.quick;
-  return S.all('tasks').filter((x) => {
+  const sc = ui.board.scope;
+  const base = sc === 'company' ? allTasks().filter(isCo) : sc === 'personal' ? allTasks().filter((x) => !isCo(x)) : myTasks();
+  return base.filter((x) => {
+    if (sc === 'company' && ui.board.who !== 'all' && assigneeOf(x) !== ui.board.who) return false;
     if (q && !`${x.key || ''} ${x.title} ${x.description || ''} ${x.category || ''}`.toLowerCase().includes(q)) return false;
     if (ui.board.epic !== 'all' && (x.category || '') !== ui.board.epic) return false;
     if (ui.board.type !== 'all' && (x.type || 'task') !== ui.board.type) return false;
@@ -682,6 +751,7 @@ function issueCard(x) {
     x.category ? `<span class="epic-lz" style="--h:${hue(x.category)}">${esc(x.category)}</span>` : '',
     cl.length ? `<span class="kc-check ${cd === cl.length ? 'all' : ''}">${ic('check', 12)} ${cd}/${cl.length}</span>` : '',
     (x.comments || []).length ? `<span class="kc-check">${ic('chat', 12)} ${x.comments.length}</span>` : '',
+    isCo(x) && ui.board.scope !== 'company' ? `<span class="co-lz">${ic('users', 11)} Company</span>` : '',
   ].join('');
   return `<div class="kcard ${x.flagged ? 'flagged' : ''} ${x.done ? 'is-done' : ''}" data-id="${x.id}" data-order="${x.order ?? Date.parse(x.createdAt || 0)}" data-act="openIssue" tabindex="0" role="button" aria-label="${esc(x.key || '')} ${esc(x.title)}">
     <div class="kc-title">${esc(x.title)}</div>
@@ -689,7 +759,7 @@ function issueCard(x) {
     <div class="kc-foot">${typeIcon(typeOf(x))}<span class="kc-key">${esc(x.key || '')}</span><span class="spacer"></span>
       ${x.due ? `<span class="kc-due ${over ? 'over' : ''}" title="Due ${fmtDate(x.due)}${x.time ? ' ' + fmtTime(x.time) : ''}">${ic('calendar', 12)} ${fmtDate(x.due)}</span>` : ''}
       ${x.points != null && x.points !== '' ? `<span class="kc-pts" title="Story points">${x.points}</span>` : ''}
-      ${prioIcon(x.priority)}<span class="kav" title="Sagar">SP</span></div>
+      ${prioIcon(x.priority)}${avatar(assigneeOf(x))}</div>
     <button class="kgrip" tabindex="-1" aria-label="Drag to move">${ic('grip', 14)}</button>
   </div>`;
 }
@@ -700,10 +770,12 @@ function laneSpec(items) {
     const keys = [...new Set(items.map((x) => x.category || ''))].sort((a, b) => (a === '') - (b === '') || a.localeCompare(b));
     return keys.map((k) => ({ key: k, label: k || 'No epic', items: items.filter((x) => (x.category || '') === k) }));
   }
+  if (g === 'person') return USERS.map((u) => ({ key: u.id, label: u.name, items: items.filter((x) => assigneeOf(x) === u.id) })).filter((l) => l.items.length || ui.board.scope === 'company');
   if (g === 'priority') return PRIOS.map(([k, l]) => ({ key: k, label: `${l} priority`, items: items.filter((x) => (x.priority || 'med') === k) })).filter((l) => l.items.length);
   return [{ key: null, label: '', items }];
 }
 
+const quickMode = () => (ui.board.scope === 'company' ? 'company' : ui.board.scope === 'personal' ? 'personal' : taskMode());
 function taskBoardHTML() {
   const cutoff = addDays(today(), -14);
   let hiddenDone = 0;
@@ -727,7 +799,7 @@ function taskBoardHTML() {
       return `<div class="kcol-body" data-status="${c.id}"${lane.key != null ? ` data-lane="${esc(lane.key)}"` : ''}>
         ${xs.map(issueCard).join('')}
         ${c.id === 'done' && li === 0 && (hiddenDone || ui.board.showOldDone) ? `<button class="kmore" data-act="toggleOldDone">${ui.board.showOldDone ? 'Hide older done issues' : `+ ${hiddenDone} done more than 14 days ago`}</button>` : ''}
-        <form class="kquick" data-form="quickIssue" data-status="${c.id}"${lane.key != null ? ` data-lane="${esc(lane.key)}"` : ''}><input class="input" name="title" placeholder="+ Create issue" autocomplete="off" aria-label="Create issue in ${c.label}"></form>
+        <form class="kquick" data-form="quickIssue" data-status="${c.id}"${lane.key != null ? ` data-lane="${esc(lane.key)}"` : ''}><input class="input" name="title" placeholder="+ Create issue${quickMode() === 'company' ? ' · Company' : ''}" autocomplete="off" aria-label="Create issue in ${c.label}"></form>
       </div>`;
     }).join('');
     return `${laneHead}<div class="krow">${bodies}</div>`;
@@ -736,16 +808,16 @@ function taskBoardHTML() {
 }
 
 function boardToolbar() {
-  const tasks = S.all('tasks');
-  const epics = [...new Set(tasks.map((x) => x.category).filter(Boolean))].sort();
+  const epics = [...new Set(allTasks().map((x) => x.category).filter(Boolean))].sort();
   return `<div class="ktoolbar">
     <label class="search">${ic('search', 16)}<input class="input" placeholder="Search board" value="${esc(ui.board.q)}" data-input="boardQ"></label>
-    <span class="kav lg" title="Sagar">SP</span>
+    <div class="seg">${[['mine', 'Mine'], ['company', 'Company'], ['personal', 'Personal']].map(([k, l]) => `<button class="${ui.board.scope === k ? 'on' : ''}" data-act="boardScope" data-v="${k}">${l}</button>`).join('')}</div>
+    ${ui.board.scope === 'company' ? `<div class="who-chips">${[{ id: 'all', name: 'Everyone' }, ...USERS].map((u) => `<button class="chip ${ui.board.who === u.id ? 'active' : ''}" data-act="boardWho" data-v="${u.id}">${u.id === 'all' ? '' : avatar(u.id) + ' '}${esc(u.name)}</button>`).join('')}</div>` : ''}
     <div class="chips">${[['week', 'Due this week'], ['overdue', 'Overdue'], ['high', 'High priority'], ['flag', 'Blocked']].map(([k, l]) => `<button class="chip ${ui.board.quick.has(k) ? 'active' : ''}" data-act="boardQuick" data-v="${k}">${l}</button>`).join('')}</div>
     <span class="spacer"></span>
     <select class="input sm" data-change="boardEpic" aria-label="Epic"><option value="all">All epics</option>${opts(epics, ui.board.epic)}</select>
     <select class="input sm" data-change="boardType" aria-label="Type"><option value="all">All types</option>${opts(ISSUE_TYPES.map(([k, l]) => [k, l]), ui.board.type)}</select>
-    <select class="input sm" data-change="boardGroup" aria-label="Swimlanes">${opts([['none', 'No swimlanes'], ['epic', 'Swimlanes: Epic'], ['priority', 'Swimlanes: Priority']], ui.board.group)}</select>
+    <select class="input sm" data-change="boardGroup" aria-label="Swimlanes">${opts([['none', 'No swimlanes'], ['person', 'Swimlanes: Person'], ['epic', 'Swimlanes: Epic'], ['priority', 'Swimlanes: Priority']], ui.board.group)}</select>
   </div>`;
 }
 
@@ -754,7 +826,7 @@ function issueSheetHTML(x) {
   const t = typeOf(x);
   const cl = x.checklist || [];
   const cd = cl.filter((i) => i.done).length;
-  const epics = [...new Set(S.all('tasks').map((y) => y.category).filter(Boolean))].sort();
+  const epics = [...new Set(allTasks().map((y) => y.category).filter(Boolean))].sort();
   const activity = [
     ...(x.comments || []).map((c) => ({ ...c, kind: 'comment' })),
     ...(x.log || []).map((l) => ({ ...l, kind: 'log' })),
@@ -764,7 +836,7 @@ function issueSheetHTML(x) {
       ${typeIcon(t)}<span class="kc-key">${esc(x.key || '')}</span>
       <span class="spacer"></span>
       <button class="btn sm ${x.flagged ? 'flag-on' : 'ghost'}" data-act="issueFlag">${ic('flag', 14)} ${x.flagged ? 'Blocked' : 'Flag as blocked'}</button>
-      <button class="icon-btn" data-act="issueDelete" aria-label="Delete issue">${ic('trash', 16)}</button>
+      ${!isCo(x) || (x.owner || x.reporter) === ME() ? `<button class="icon-btn" data-act="issueDelete" aria-label="Delete issue">${ic('trash', 16)}</button>` : ''}
       <button class="icon-btn" data-act="closeModal" aria-label="Close">${ic('x')}</button>
     </header>
     <div class="sheet-body">
@@ -783,8 +855,8 @@ function issueSheetHTML(x) {
         <h4>Activity</h4>
         <form class="comment-form" data-form="addComment"><textarea class="input" name="text" rows="2" placeholder="Add a comment… (Ctrl+Enter saves)"></textarea><div class="row"><span class="spacer"></span><button class="btn primary sm">Comment</button></div></form>
         <div class="activity">${activity.map((a) => a.kind === 'comment'
-          ? `<div class="act comment"><span class="kav">SP</span><div class="grow"><div class="small"><b>Sagar</b> <span class="muted">${fmtDT(a.at)}</span></div><div class="act-text">${esc(a.text)}</div><button class="link-btn small" data-act="delComment" data-i="${a.id}">Delete</button></div></div>`
-          : `<div class="act log"><span class="dot"></span><div class="small"><b>Sagar</b> ${esc(a.text)} <span class="muted">· ${fmtDT(a.at)}</span></div></div>`).join('') || empty('No activity yet.')}</div>
+          ? `<div class="act comment">${avatar(a.by || x.owner || ME())}<div class="grow"><div class="small"><b>${esc((userOf(a.by) || userOf(x.owner) || meUser()).name)}</b> <span class="muted">${fmtDT(a.at)}</span></div><div class="act-text">${esc(a.text)}</div>${(a.by || ME()) === ME() ? `<button class="link-btn small" data-act="delComment" data-i="${a.id}">Delete</button>` : ''}</div></div>`
+          : `<div class="act log"><span class="dot"></span><div class="small"><b>${esc((userOf(a.by) || userOf(x.owner) || meUser()).name)}</b> ${esc(a.text)} <span class="muted">· ${fmtDT(a.at)}</span></div></div>`).join('') || empty('No activity yet.')}</div>
       </div>
       <aside class="sheet-side">
         <div class="side-box">
@@ -795,7 +867,10 @@ function issueSheetHTML(x) {
           ${field('Due date', `<input class="input sm" type="date" value="${esc(x.due || '')}" data-change="issueField" data-f="due">`)}
           ${field('Time', `<input class="input sm" type="time" value="${esc(x.time || '')}" data-change="issueField" data-f="time">`)}
           ${field('Story points', `<input class="input sm" type="number" min="0" step="1" value="${x.points ?? ''}" data-change="issueField" data-f="points">`)}
-          <div class="kv"><span>Assignee</span><b><span class="kav">SP</span> Sagar</b></div>
+          <div class="kv"><span>Board</span><b>${isCo(x) ? `${ic('users', 13)} Company` : `${ic('pin', 13)} Personal`}</b></div>
+          ${isCo(x) ? field('Assignee', `<select class="input sm" data-change="issueField" data-f="assignee">${opts(USERS.map((u) => [u.id, u.name]), assigneeOf(x))}</select>`) : `<div class="kv"><span>Assignee</span><b>${avatar(ME())} ${esc(meUser().name)}</b></div>`}
+          ${isCo(x) ? `<div class="kv"><span>Reporter</span><b>${avatar(x.reporter || x.owner)} ${esc((userOf(x.reporter || x.owner) || meUser()).name)}</b></div>` : ''}
+          ${!isCo(x) || (x.owner || x.reporter) === ME() ? `<button class="btn sm ghost full" data-act="issueMoveMode">${isCo(x) ? 'Make it personal' : `${ic('users', 14)} Move to company board`}</button>` : ''}
         </div>
         <div class="muted small side-dates">Created ${fmtDT(x.createdAt)}<br>Updated ${fmtDT(x.updatedAt)}${x.doneAt ? `<br>Resolved ${fmtDT(x.doneAt)}` : ''}</div>
       </aside>
@@ -803,7 +878,7 @@ function issueSheetHTML(x) {
   </div>`;
 }
 function openIssue(id) {
-  const x = S.get('tasks', id);
+  const x = getTask(id);
   if (!x) return;
   ui.issueId = id;
   const dlg = $('#modal');
@@ -816,11 +891,12 @@ function openIssue(id) {
   const ttl = dlg.querySelector('.issue-title');
   if (ttl) { ttl.style.height = 'auto'; ttl.style.height = ttl.scrollHeight + 'px'; }
 }
-const curIssue = () => S.get('tasks', ui.issueId);
-const FIELD_LABEL = { title: 'Summary', description: 'Description', type: 'Type', priority: 'Priority', category: 'Epic', due: 'Due date', time: 'Time', points: 'Story points' };
+const curIssue = () => getTask(ui.issueId);
+const FIELD_LABEL = { assignee: 'Assignee', title: 'Summary', description: 'Description', type: 'Type', priority: 'Priority', category: 'Epic', due: 'Due date', time: 'Time', points: 'Story points' };
 function fieldText(f, v) {
   if (v == null || v === '') return 'none';
   if (f === 'priority') return PRIO_LABEL[v];
+  if (f === 'assignee') return userOf(v)?.name || v;
   if (f === 'type') return ISSUE_TYPES.find((t) => t[0] === v)?.[1] || v;
   if (f === 'due') return fmtDate(v);
   if (f === 'time') return fmtTime(v);
@@ -859,12 +935,16 @@ function dropOrder(before, after) {
 }
 function applyDrop(board, id, status, lane, order) {
   if (board === 'tasks') {
-    let x = S.get('tasks', id);
+    let x = getTask(id);
     if (!x) return;
     const extra = { order };
     if (lane !== undefined && ui.board.group === 'epic' && (x.category || '') !== lane) {
       x = { ...x, log: logEntry(x, `Epic → ${lane || 'none'}`) };
       Object.assign(extra, { category: lane || null, log: x.log });
+    }
+    if (lane !== undefined && ui.board.group === 'person' && isCo(x) && assigneeOf(x) !== lane) {
+      x = { ...x, log: logEntry(x, `Assignee → ${userOf(lane)?.name || lane}`) };
+      Object.assign(extra, { assignee: lane, log: x.log });
     }
     if (lane !== undefined && ui.board.group === 'priority' && (x.priority || 'med') !== lane) {
       x = { ...x, log: logEntry(x, `Priority → ${PRIO_LABEL[lane]}`) };
@@ -954,7 +1034,7 @@ function moveCardByKey(card, dir) {
 }
 
 function viewTasks() {
-  const tasks = S.all('tasks');
+  const tasks = myTasks();
   const groups = taskBuckets(tasks);
   const cats = [...new Set(tasks.map((x) => x.category).filter(Boolean))];
   const t = today();
@@ -1309,14 +1389,15 @@ function viewSettings() {
   const cloud = S.status.mode === 'cloud';
   return `<header class="page-head"><div><p class="eyebrow">Sync, import, backup</p><h1>Settings</h1></div></header>
   <section class="card">
+    <div class="card-head"><h2>Account</h2></div>
+    <div class="row">${avatar(ME(), 'lg')}<div class="grow"><b>Signed in as ${esc(meUser().name)}</b><div class="muted small">Your tasks, thoughts, books and ideas are private to you. Company tasks on the board are shared with the team.</div></div>
+    <button class="btn" data-act="logout">${ic('x', 15)} Switch user / lock</button></div>
+  </section>
+  <section class="card">
     <div class="card-head"><h2>Sync across devices</h2><span class="sync-pill ${cloud ? (S.status.error ? 'bad' : 'good') : ''}">${cloud ? (S.status.error ? 'Error' : S.status.connected ? 'Connected' : 'Connecting / offline') : 'This device only'}</span></div>
     ${cloud ? `
       <p>Open this secret link once on each phone or laptop and bookmark it. No login needed — but anyone with this link can see your data, so keep it private.</p>
       <div class="copy-row"><input class="input grow mono" readonly value="${esc(deviceLink())}" aria-label="Device link"><button class="btn" data-act="copyLink">${ic('copy', 16)} Copy link</button></div>
-      <details><summary>Firestore security rules (paste once in Firebase console)</summary>
-        <p class="muted small">Firebase console → Firestore Database → Rules → replace everything with this → Publish. It locks the database to your secret key only.</p>
-        <pre class="code">${esc(rulesText(S.status.key))}</pre><button class="btn sm" data-act="copyRules">${ic('copy', 15)} Copy rules</button>
-      </details>
       <details><summary>Secret for the nightly Instagram job</summary>
         <p class="muted small">In GitHub: your repo → Settings → Secrets and variables → Actions → New secret named <code>VAULT_KEY</code> with this value:</p>
         <div class="copy-row"><input class="input grow mono" readonly value="${esc(S.status.key)}" aria-label="Vault key"><button class="btn" data-act="copyKey">${ic('copy', 16)} Copy</button></div>
@@ -1355,12 +1436,26 @@ function viewSettings() {
   </section>`;
 }
 
+function viewLogin() {
+  const u = userOf(ui.loginUser);
+  return `<div class="login">
+    <svg class="login-logo" viewBox="0 0 40 40" aria-hidden="true"><rect width="40" height="40" rx="11" style="fill:var(--accent)"/><rect x="10.5" y="10" width="4.2" height="20" rx="2.1" style="fill:var(--on-accent)"/><path d="M18.6 11.6c0-1.3 1.4-2.1 2.5-1.4l10.2 7.3c1 .7 1 2.1 0 2.8l-10.2 7.3c-1.1.8-2.5-.1-2.5-1.4z" style="fill:var(--on-accent)"/></svg>
+    <h1>Who's working?</h1>
+    <p class="muted">Pick your name and enter your 6-digit code. This device will remember you.</p>
+    <div class="who">${USERS.map((x) => `<button class="who-card ${ui.loginUser === x.id ? 'on' : ''}" data-act="pickUser" data-v="${x.id}">${avatar(x.id, 'xl')}<b>${esc(x.name)}</b></button>`).join('')}</div>
+    ${u ? `<form class="code-form" data-form="login">
+      <label class="muted small" for="codeIn">Code for ${esc(u.name)}</label>
+      <input id="codeIn" class="code-input" name="code" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="one-time-code" placeholder="••••••" data-input="codeInput" ${ui.loginBusy ? 'disabled' : ''}>
+      <button class="btn primary pill" ${ui.loginBusy ? 'disabled' : ''}>${ui.loginBusy ? 'Checking…' : 'Unlock'}</button>
+      ${ui.loginErr ? `<p class="bad small">${esc(ui.loginErr)}</p>` : ''}
+    </form>` : ''}
+  </div>`;
+}
+
 function viewSetupKey() {
   return `<div class="setup card">
-    <h1>Set up this device</h1>
-    <p>Your tracker is connected to Firebase. Is this the first device you're using?</p>
-    <button class="btn primary" data-act="createVault">Yes — create my tracker</button>
-    <div class="or">or</div>
+    <h1>Open Playbook on this device</h1>
+    <p>Open the Playbook link Sagar shared (the long one with <code>#k=</code>) on this device, or paste it here.</p>
     <form data-form="joinVault" class="copy-row">
       <input class="input grow" name="link" placeholder="Paste the secret link from your other device" required>
       <button class="btn">Connect</button>
@@ -1373,11 +1468,14 @@ const ROUTES = { '': viewDashboard, schedule: viewSchedule, tasks: viewTasks, in
 const route = () => location.hash.replace(/^#\/?/, '').split(/[?#]/)[0];
 
 function render() {
-  const r = ROUTES[route()] ? route() : '';
+  const r = ROUTES[route()] && (!['insta', 'mybook'].includes(route()) || hasFeat(route())) ? route() : '';
   document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === r));
   const view = $('#view');
   const boardScroll = [...view.querySelectorAll('[data-board]')].map((b) => [b.dataset.board, b.scrollLeft]);
-  view.innerHTML = S.status.needsKey ? viewSetupKey() : ROUTES[r]();
+  const out = !S.status.needsKey && !S.status.user;
+  document.body.classList.toggle('logged-out', out || S.status.needsKey);
+  view.innerHTML = S.status.needsKey ? viewSetupKey() : out ? viewLogin() : ROUTES[r]();
+  if (out && ui.loginUser) setTimeout(() => $('#codeIn')?.focus(), 0);
   for (const [name, left] of boardScroll) { const b = view.querySelector(`[data-board="${name}"]`); if (b) b.scrollLeft = left; }
   document.title = `${{ '': 'Dashboard', schedule: 'Schedule', tasks: 'To-Do', insta: 'Instagram', mybook: 'My Book', thoughts: 'Thoughts', books: 'Bookshelf', ideas: 'Ideas', settings: 'Settings' }[r]} · Playbook`;
   afterRender();
@@ -1447,6 +1545,26 @@ function saveThought(text, category) {
 
 const ACTS = {
   closeModal,
+  pickUser: (el) => { ui.loginUser = el.dataset.v; ui.loginErr = ''; render(); },
+  logout: () => {
+    if (!confirm('Sign out on this device? You will need your code to come back.')) return;
+    S.logout(); ui.loginUser = null; ui.loginErr = ''; buildNav(); location.hash = '#/'; render();
+  },
+  openCompany: () => { ui.board.scope = 'company'; ui.board.view = 'board'; if (location.hash === '#/tasks') render(); else location.hash = '#/tasks'; },
+  boardScope: (el) => { ui.board.scope = el.dataset.v; ui.board.who = 'all'; if (el.dataset.v === 'company' && ui.board.group === 'none') ui.board.group = 'person'; if (el.dataset.v !== 'company' && ui.board.group === 'person') ui.board.group = 'none'; render(); },
+  boardWho: (el) => { ui.board.who = el.dataset.v; render(); },
+  issueMoveMode: () => {
+    const x = curIssue();
+    if (!x) return;
+    const toCo = !isCo(x);
+    if (!confirm(toCo ? 'Move this issue to the company board? Both of you will see it.' : 'Make this issue personal? It will leave the company board.')) return;
+    const { _col, _b, id, key, owner, reporter, assignee, ...rest } = x;
+    const col = toCo ? 'ctasks' : 'tasks';
+    const moved = S.put(col, { ...rest, ...(toCo ? { owner: ME(), reporter: ME(), assignee: ME() } : {}), key: nextKey(col), log: logEntry(x, `Moved from ${key} to the ${toCo ? 'company' : 'personal'} board`) });
+    delTaskItem(x);
+    toast(`Now ${moved.key}`);
+    openIssue(moved.id);
+  },
   toggleRail: () => {
     const sh = $('#shell');
     sh.classList.toggle('rail-open');
@@ -1475,7 +1593,7 @@ const ACTS = {
     if (location.hash === '#/' + r) render(); else location.hash = '#/' + r;
   },
   palette: (el) => { try { localStorage.setItem('tracker.palette', el.dataset.v); } catch {} applyTheme(); render(); },
-  toggleTask: (el) => { const x = byId('tasks', el); if (x) moveTask(x, x.done ? 'todo' : 'done'); },
+  toggleTask: (el) => { const x = getTask(el.dataset.id); if (x) moveTask(x, x.done ? 'todo' : 'done'); },
   editTask: (el) => openIssue(el.dataset.id),
   openIssue: (el) => openIssue(el.dataset.id),
   boardView: (el) => { ui.board.view = el.dataset.v; render(); },
@@ -1484,11 +1602,11 @@ const ACTS = {
   boardQuick: (el) => { const q = ui.board.quick, v = el.dataset.v; q.has(v) ? q.delete(v) : q.add(v); render(); },
   laneToggle: (el) => { const c = ui.board.collapsed, v = el.dataset.v; c.has(v) ? c.delete(v) : c.add(v); render(); },
   toggleOldDone: () => { ui.board.showOldDone = !ui.board.showOldDone; render(); },
-  issueFlag: () => { const x = curIssue(); if (!x) return; S.update('tasks', x.id, { flagged: !x.flagged, log: logEntry(x, x.flagged ? 'Removed the blocked flag' : 'Flagged as blocked') }); openIssue(x.id); },
-  issueDelete: () => { const x = curIssue(); if (x && confirm(`Delete ${x.key || ''} "${x.title}"? This cannot be undone.`)) { closeModal(); S.remove('tasks', x); toast(`${x.key || 'Issue'} deleted`); } },
-  delCheck: (el) => { const x = curIssue(); if (!x) return; S.update('tasks', x.id, { checklist: (x.checklist || []).filter((i) => i.id !== el.dataset.i) }); openIssue(x.id); },
-  delComment: (el) => { const x = curIssue(); if (x && confirm('Delete this comment?')) { S.update('tasks', x.id, { comments: (x.comments || []).filter((c) => c.id !== el.dataset.i) }); openIssue(x.id); } },
-  delTask: (el) => { const x = byId('tasks', el); if (x && confirm(`Delete "${x.title}"?`)) S.remove('tasks', x); },
+  issueFlag: () => { const x = curIssue(); if (!x) return; updTask(x, { flagged: !x.flagged, log: logEntry(x, x.flagged ? 'Removed the blocked flag' : 'Flagged as blocked') }); openIssue(x.id); },
+  issueDelete: () => { const x = curIssue(); if (x && confirm(`Delete ${x.key || ''} "${x.title}"? This cannot be undone.`)) { closeModal(); delTaskItem(x); toast(`${x.key || 'Issue'} deleted`); } },
+  delCheck: (el) => { const x = curIssue(); if (!x) return; updTask(x, { checklist: (x.checklist || []).filter((i) => i.id !== el.dataset.i) }); openIssue(x.id); },
+  delComment: (el) => { const x = curIssue(); if (x && confirm('Delete this comment?')) { updTask(x, { comments: (x.comments || []).filter((c) => c.id !== el.dataset.i) }); openIssue(x.id); } },
+  delTask: (el) => { const x = getTask(el.dataset.id); if (x && confirm(`Delete "${x.title}"?`)) delTaskItem(x); },
   taskFilter: (el) => { ui.taskFilter = el.dataset.v; render(); },
   expand: (el) => { ui.expanded.has(el.dataset.id) ? ui.expanded.delete(el.dataset.id) : ui.expanded.add(el.dataset.id); render(); },
   copyThought: (el) => { const x = byId('thoughts', el); if (x) copyText(x.text); },
@@ -1531,7 +1649,7 @@ const ACTS = {
   exportJson: () => download(`my-tracker-backup-${today()}.json`, new Blob([JSON.stringify({ app: 'my-tracker', version: 1, exportedAt: S.nowISO(), buckets: S.snapshot() }, null, 2)], { type: 'application/json' })),
   exportExcel: async () => {
     try {
-      await exportExcel({ Tasks: S.all('tasks'), Thoughts: S.all('thoughts'), Books: S.all('books'), Ideas: S.all('ideas'), Reels: S.all('reels') }, `my-tracker-${today()}.xlsx`);
+      await exportExcel({ Tasks: S.all('tasks'), 'Company tasks': S.all('ctasks'), Thoughts: S.all('thoughts'), Books: S.all('books'), Ideas: S.all('ideas'), Reels: S.all('reels') }, `my-tracker-${today()}.xlsx`);
     } catch (e) { toast(e.message); }
   },
   uploadLocal: async () => {
@@ -1543,6 +1661,25 @@ const ACTS = {
 };
 
 const FORMS = {
+  login: async (f) => {
+    const code = String(new FormData(f).get('code') || '').trim();
+    if (!/^\d{6}$/.test(code)) { ui.loginErr = 'The code has 6 digits.'; render(); return; }
+    ui.loginBusy = true; ui.loginErr = ''; render();
+    try {
+      await S.login(ui.loginUser, code);
+      ui.loginBusy = false; ui.loginUser = null;
+      buildNav();
+      try { ensureKeys(); } catch (e) { console.error(e); }
+      ui.board.scope = 'mine';
+      location.hash = '#/';
+      render();
+      toast(`Welcome, ${meUser().name}`);
+    } catch (e) {
+      ui.loginBusy = false;
+      ui.loginErr = e.message === 'wrong-code' ? 'Wrong code. Try again.' : e.message;
+      render();
+    }
+  },
   modal: (f) => { const fn = modalSubmit; const v = vals(f); v.done = f.querySelector('[name=done]')?.checked; closeModal(); fn?.(v); },
   addTask: (f) => {
     const v = vals(f);
@@ -1558,7 +1695,8 @@ const FORMS = {
     const extra = {};
     if (f.dataset.lane !== undefined && ui.board.group === 'epic') extra.category = f.dataset.lane || null;
     if (f.dataset.lane !== undefined && ui.board.group === 'priority') extra.priority = f.dataset.lane;
-    createTask({ title, status: f.dataset.status, ...extra });
+    if (f.dataset.lane !== undefined && ui.board.group === 'person') extra.assignee = f.dataset.lane;
+    createTask({ title, status: f.dataset.status, ...extra }, quickMode());
     render();
     document.querySelector(`.kquick[data-status="${f.dataset.status}"] input`)?.focus();
   },
@@ -1572,14 +1710,14 @@ const FORMS = {
   addCheck: (f) => {
     const x = curIssue(), text = new FormData(f).get('text')?.trim();
     if (!x || !text) return;
-    S.update('tasks', x.id, { checklist: [...(x.checklist || []), { id: S.uid(), text, done: false }] });
+    updTask(x, { checklist: [...(x.checklist || []), { id: S.uid(), text, done: false }] });
     openIssue(x.id);
     $('#modal [data-form=addCheck] input')?.focus();
   },
   addComment: (f) => {
     const x = curIssue(), text = new FormData(f).get('text')?.trim();
     if (!x || !text) return;
-    S.update('tasks', x.id, { comments: [...(x.comments || []), { id: S.uid(), at: S.nowISO(), text }] });
+    updTask(x, { comments: [...(x.comments || []), { id: S.uid(), at: S.nowISO(), by: ME(), text }] });
     openIssue(x.id);
   },
   addThought: (f) => { const fd = new FormData(f); saveThought(fd.get('text') || '', fd.get('category')); render(); },
@@ -1616,7 +1754,7 @@ const CHANGES = {
   checkItem: (el) => {
     const x = curIssue();
     if (!x) return;
-    S.update('tasks', x.id, { checklist: (x.checklist || []).map((i) => (i.id === el.dataset.i ? { ...i, done: el.checked } : i)) });
+    updTask(x, { checklist: (x.checklist || []).map((i) => (i.id === el.dataset.i ? { ...i, done: el.checked } : i)) });
     openIssue(x.id);
   },
   issueField: (el) => {
@@ -1632,7 +1770,7 @@ const CHANGES = {
     if (f === 'description') patch.notes = null;
     if (f !== 'description' && f !== 'title') patch.log = logEntry(x, `${FIELD_LABEL[f]} → ${fieldText(f, v)}`);
     if (f === 'title') patch.log = logEntry(x, 'Renamed the issue');
-    S.update('tasks', x.id, patch);
+    updTask(x, patch);
     if (f !== 'title' && f !== 'description') openIssue(x.id);
   },
   reelType: (el) => S.update('reels', el.dataset.id, { contentType: el.value || null }),
@@ -1667,6 +1805,7 @@ const INPUTS = {
   thoughtQ: (el) => { ui.thoughtQ = el.value; $('#thoughtList').innerHTML = thoughtListHTML(); },
   ideaQ: (el) => { ui.ideaQ = el.value; const l = $('#ideaList'), b = $('#ideaBoardWrap'); if (l) l.innerHTML = ideaListHTML(); if (b) b.innerHTML = ideaBoardHTML(); },
   boardQ: (el) => { ui.board.q = el.value; $('#boardWrap').innerHTML = taskBoardHTML(); },
+  codeInput: (el) => { el.value = el.value.replace(/\D/g, '').slice(0, 6); if (el.value.length === 6) el.form.requestSubmit(); },
   draft: (el) => { try { localStorage.setItem('tracker.draft', el.value); } catch {} },
   globalSearch: (el) => {
     ui.searchQ = el.value;
@@ -1735,7 +1874,8 @@ async function boot() {
   render();
   $('#modal').addEventListener('close', () => { resetModal(); render(); });
   try { await S.init(); } catch (e) { console.error(e); S.status.error = 'Could not reach Firebase: ' + e.message; }
-  try { ensureKeys(); } catch (e) { console.error(e); }
+  buildNav();
+  if (S.status.user) { try { ensureKeys(); } catch (e) { console.error(e); } }
   render();
 }
 boot();

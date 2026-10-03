@@ -14,3 +14,11 @@ export const INSTA = {
   username: 'sagarpatro604',
   trackingStart: '2026-08-01',
 };
+
+// The team. Each person signs in with their own 6-digit code (never stored here); their private
+// space is derived from it. Company tasks are shared. "features" turns on pages that only make
+// sense for that person.
+export const USERS = [
+  { id: 'sagar', name: 'Sagar', initials: 'SP', color: '#b9a6f5', features: ['insta', 'mybook'] },
+  { id: 'bhuvan', name: 'Bhuvan', initials: 'BH', color: '#7fd6a8', features: [] },
+];
