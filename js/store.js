@@ -8,7 +8,7 @@
 //                                                 the two real user spaces
 //   co   vaults/{key}/spaces/company/buckets      company tasks (ctasks_*), seen by both
 // Each bucket document is { items: { [id]: item } }.
-import { firebaseConfig } from './config.js';
+import { firebaseConfig, INSTA } from './config.js';
 
 const FB_VER = '10.12.2';
 const KEY_LS = 'tracker.vaultKey';
@@ -45,7 +45,11 @@ export function all(col) {
   for (const sp of READ_SPACES[col] || [spaceOf(col)]) {
     for (const [bid, b] of Object.entries(data[sp])) {
       if (!bid.startsWith(col + '_') || !b?.items) continue;
-      for (const it of Object.values(b.items)) if (it && it.id) out.push(it);
+      for (const it of Object.values(b.items)) {
+        if (!it || !it.id) continue;
+        if (sp === 'sys' && col === 'settings' && it.id !== 'instaSync') continue; // only the nightly job's status is shared
+        out.push(it);
+      }
     }
   }
   return out;
@@ -185,6 +189,24 @@ function listen(sp, path) {
   });
 }
 
+// The shared area can't be listed (the rules only allow reels_* and settings_all by name), so follow
+// those documents one by one: settings_all plus one reels bucket per month since tracking began.
+function listenShared() {
+  if (Array.isArray(unsub.sys)) unsub.sys.forEach((u) => u());
+  const months = [];
+  const end = new Date().toISOString().slice(0, 7);
+  for (let d = new Date(`${(INSTA.trackingStart || '2026-08-01').slice(0, 7)}-01T00:00:00Z`); d.toISOString().slice(0, 7) <= end; d.setUTCMonth(d.getUTCMonth() + 1)) months.push(d.toISOString().slice(0, 7));
+  const ids = ['settings_all', ...months.map((m) => `reels_${m}`)];
+  let pending = ids.length;
+  return new Promise((resolve) => {
+    unsub.sys = ids.map((bid) => fb.fs.onSnapshot(docRef('sys', bid), (d) => {
+      if (d.exists()) data.sys[bid] = d.data(); else delete data.sys[bid];
+      emit();
+      if (--pending === 0) resolve();
+    }, (err) => { fail(err); if (--pending === 0) resolve(); }));
+  });
+}
+
 async function attachUser(user, space) {
   status.user = user;
   status.space = space;
@@ -265,7 +287,10 @@ export async function connect(key) {
     db = fs.getFirestore(app);
   }
   fb = { fs, db, key };
-  await listen('sys', ['vaults', key, 'buckets']);
+  await listenShared();
+  // A new month means a new reels bucket to follow.
+  let month = new Date().toISOString().slice(0, 7);
+  setInterval(() => { const m = new Date().toISOString().slice(0, 7); if (m !== month) { month = m; listenShared(); } }, 3600000);
   const s = savedUser();
   if (s) await attachUser(s.user, s.space);
 }
