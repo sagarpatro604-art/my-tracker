@@ -1724,6 +1724,9 @@ async function boot() {
   buildNav();
   S.onChange(scheduleRender);
   window.addEventListener('hashchange', () => {
+    // A device link opened in a tab that already has Playbook loaded: save the key and start fresh.
+    const k = S.keyFromText(location.hash);
+    if (k) { try { localStorage.setItem('tracker.vaultKey', k); } catch {} location.replace(location.pathname + '#/'); location.reload(); return; }
     pendingRender = false;
     if (innerWidth <= 820) $('#shell').classList.remove('rail-open');
     render();
