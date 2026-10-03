@@ -62,6 +62,9 @@ const ICONS = {
   arrowR: '<path d="M5 12h14M13 6l6 6-6 6"/>',
   file: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/>',
   film: '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M7 3v18M17 3v18M3 8h4M17 8h4M3 16h4M17 16h4"/>',
+  flag: '<path d="M5 21V4"/><path d="M5 4h11l-2 4 2 4H5"/>',
+  chat: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12Z"/>',
+  chevD: '<path d="m6 9 6 6 6-6"/>',
   star: '<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9Z"/>',
 };
 const ic = (n, s = 18) => `<svg class="ic" viewBox="0 0 24 24" width="${s}" height="${s}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[n] || ''}</svg>`;
@@ -69,12 +72,12 @@ const ic = (n, s = 18) => `<svg class="ic" viewBox="0 0 24 24" width="${s}" heig
 const CONTENT_TYPES = ['Stock Market Daily', 'News Breakdown', 'Concept Explainer', 'Storytelling Backup', 'Meme / Trend'];
 const IDEA_STATUSES = ['Backlog', 'In progress', 'Ready', 'Scheduled', 'Posted'];
 const BOOK_STATUSES = [['reading', 'Reading'], ['want', 'Want to read'], ['paused', 'Paused'], ['finished', 'Finished']];
-const PRIOS = [['high', 'High'], ['med', 'Medium'], ['low', 'Low']];
-const PRIO_RANK = { high: 0, med: 1, low: 2 };
+const PRIOS = [['highest', 'Highest'], ['high', 'High'], ['med', 'Medium'], ['low', 'Low'], ['lowest', 'Lowest']];
+const PRIO_RANK = { highest: 0, high: 1, med: 2, low: 3, lowest: 4 };
 const THOUGHT_CATS = ['LinkedIn posts', 'Instagram scripts', 'Ideas', 'Instagram inspo', 'Scripting ideas'];
 const lastThoughtCat = () => { try { return localStorage.getItem('tracker.thoughtCat') || 'Ideas'; } catch { return 'Ideas'; } };
 
-const ui = { sched: { mode: 'week', anchor: today(), filter: 'all', scroll: undefined }, todoTab: 'today', searchQ: '', taskFilter: 'today', taskQ: '', thoughtQ: '', thoughtCat: 'all', bookFilter: 'reading', ideaFilter: 'all', ideaQ: '', expanded: new Set() };
+const ui = { sched: { mode: 'week', anchor: today(), filter: 'all', scroll: undefined }, todoTab: 'today', searchQ: '', issueId: null, ideaView: 'board', board: { view: 'board', q: '', quick: new Set(), epic: 'all', type: 'all', group: 'none', showOldDone: false, collapsed: new Set() }, taskFilter: 'today', taskQ: '', thoughtQ: '', thoughtCat: 'all', bookFilter: 'reading', ideaFilter: 'all', ideaQ: '', expanded: new Set() };
 
 /* ---------------- toast, clipboard, modal ---------------- */
 let toastTimer;
@@ -113,10 +116,12 @@ function openModal(title, body, onSubmit, submitLabel = 'Save') {
     <footer><button type="button" class="btn ghost" data-act="closeModal">Cancel</button><button type="submit" class="btn primary">${esc(submitLabel)}</button></footer>
   </form>`;
   modalSubmit = onSubmit;
+  dlg.classList.remove('sheet');
   dlg.showModal();
   setTimeout(() => dlg.querySelector('input:not([type=hidden]),textarea')?.focus(), 30);
 }
 const closeModal = () => { $('#modal').close(); modalSubmit = null; };
+function resetModal() { const d = $('#modal'); d.classList.remove('sheet'); ui.issueId = null; }
 const field = (label, inner, cls = '') => `<label class="field ${cls}"><span>${label}</span>${inner}</label>`;
 
 /* ---------------- derived data ---------------- */
@@ -402,7 +407,7 @@ function todoCard(x) {
   return `<div class="todo-card ${x.done ? 'is-done' : ''} ${over ? 'over' : ''}">
     <div class="row"><span class="pill-chip prio-${x.priority || 'med'}">${ic('file', 13)} ${esc(x.category || 'Task')}</span><span class="spacer"></span>
       <button class="chk" data-act="toggleTask" data-id="${x.id}" aria-label="${x.done ? 'Mark not done' : 'Mark done'}">${ic('check', 14)}</button></div>
-    <div class="muted small">${{ high: 'High', med: 'Medium', low: 'Low' }[x.priority || 'med']} priority${x.notes ? ' · ' + esc(x.notes.slice(0, 60)) : ''}</div>
+    <div class="muted small">${PRIO_LABEL[x.priority || 'med']} priority${x.notes ? ' · ' + esc(x.notes.slice(0, 60)) : ''}</div>
     <button class="todo-title" data-act="editTask" data-id="${x.id}">${esc(x.title)}</button>
     <span class="due-pill ${over ? 'bad' : x.done ? 'good' : ''}">${ic('clock', 13)} ${over ? 'Overdue · ' : ''}${due}</span>
   </div>`;
@@ -544,18 +549,22 @@ function buildNav() {
 
 function newTaskModal(due, time) {
   openModal('New task', `
-    ${field('Task', `<input class="input" name="title" required autocomplete="off">`)}
+    ${field('Summary', `<input class="input" name="title" required autocomplete="off">`)}
     <div class="form-grid">
+      ${field('Status', `<select class="input" name="status">${opts(TASK_COLS.map((c) => [c.id, c.label]), 'todo')}</select>`)}
+      ${field('Type', `<select class="input" name="type">${opts(ISSUE_TYPES.map(([k, l]) => [k, l]), 'task')}</select>`)}
       ${field('Date', `<input class="input" type="date" name="due" value="${esc(due || today())}">`)}
       ${field('Time', `<input class="input" type="time" name="time" value="${esc(time || '')}">`)}
       ${field('Priority', `<select class="input" name="priority">${opts(PRIOS, 'med')}</select>`)}
-      ${field('Category', `<input class="input" name="category">`)}
-    </div>`,
+      ${field('Epic', `<input class="input" name="category" list="epicListNew" placeholder="None"><datalist id="epicListNew">${[...new Set(S.all('tasks').map((y) => y.category).filter(Boolean))].map((e) => `<option value="${esc(e)}">`).join('')}</datalist>`)}
+      ${field('Story points', `<input class="input" type="number" min="0" name="points">`)}
+    </div>
+    ${field('Description', `<textarea class="input" name="description" rows="3"></textarea>`)}`,
   (v) => {
     if (!v.title.trim()) return;
-    S.put('tasks', { title: v.title.trim(), due: v.due || null, time: v.time || null, priority: v.priority, category: v.category.trim() || null, done: false, doneAt: null });
-    toast('Task added');
-  }, 'Add task');
+    const x = createTask({ title: v.title.trim(), status: v.status, type: v.type, due: v.due || null, time: v.time || null, priority: v.priority, category: v.category.trim() || null, points: v.points === '' ? null : +v.points, description: v.description.trim() || null });
+    toast(`${x.key} created`);
+  }, 'Create');
 }
 
 function taskBuckets(tasks) {
@@ -596,13 +605,366 @@ function groupBy(list, keyFn, labelFn) {
   return out.join('');
 }
 
+/* ---------------- Board (Jira-style kanban) ---------------- */
+const TASK_COLS = [
+  { id: 'idea', label: 'Ideas' },
+  { id: 'todo', label: 'To Do' },
+  { id: 'progress', label: 'In Progress', wip: 3 },
+  { id: 'done', label: 'Done' },
+];
+const STATUS_LABEL = Object.fromEntries(TASK_COLS.map((c) => [c.id, c.label]));
+const ISSUE_TYPES = [['task', 'Task', 'check', '#4c9aff'], ['content', 'Content', 'film', '#9f7aea'], ['learning', 'Learning', 'book', '#36b37e'], ['finance', 'Finance', 'chart', '#e8a33d'], ['personal', 'Personal', 'star', '#f26b5b']];
+const PRIO_LABEL = Object.fromEntries(PRIOS);
+const PRIO_PATH = {
+  highest: 'm6 13 6-6 6 6M6 19l6-6 6 6', high: 'm6 15 6-6 6 6', med: 'M5 9h14M5 15h14', low: 'm6 9 6 6 6-6', lowest: 'm6 5 6 6 6-6M6 11l6 6 6-6',
+};
+
+const statusOf = (x) => x.status || (x.done ? 'done' : 'todo');
+const typeOf = (x) => ISSUE_TYPES.find((t) => t[0] === (x.type || 'task')) || ISSUE_TYPES[0];
+const typeIcon = (t) => `<span class="ti" style="background:${t[3]}" title="${t[1]}">${ic(t[2], 11)}</span>`;
+const prioIcon = (p = 'med') => `<span class="pi p-${p}" title="${PRIO_LABEL[p] || 'Medium'} priority"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="${PRIO_PATH[p] || PRIO_PATH.med}"/></svg></span>`;
+const byOrder = (a, b) => (a.order ?? Date.parse(a.createdAt || 0)) - (b.order ?? Date.parse(b.createdAt || 0));
+
+function keyNum(x) { return +String(x.key || '').split('-')[1] || 0; }
+function nextKey() {
+  const n = Math.max(S.get('settings', 'seq')?.task || 0, 0, ...S.all('tasks').map(keyNum)) + 1;
+  S.put('settings', { id: 'seq', task: n });
+  return `PB-${n}`;
+}
+function createTask(f) {
+  const status = f.status || 'todo';
+  return S.put('tasks', {
+    type: 'task', priority: 'med', ...f, key: nextKey(), status,
+    done: status === 'done', doneAt: status === 'done' ? S.nowISO() : null, order: Date.now(),
+    log: [{ at: S.nowISO(), text: `Created in ${STATUS_LABEL[status]}` }],
+  });
+}
+// Older tasks get a key, a status and an order once, oldest first.
+function ensureKeys() {
+  const missing = S.all('tasks').filter((t) => !t.key).sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
+  if (!missing.length) return;
+  let n = Math.max(S.get('settings', 'seq')?.task || 0, 0, ...S.all('tasks').map(keyNum));
+  S.putMany('tasks', missing.map((t) => ({ ...t, key: `PB-${++n}`, status: statusOf(t), order: t.order ?? (Date.parse(t.createdAt || '') || Date.now()) })));
+  S.put('settings', { id: 'seq', task: n });
+}
+function logEntry(x, text) { return [...(x.log || []), { at: S.nowISO(), text }].slice(-80); }
+function moveTask(x, to, extra = {}) {
+  const from = statusOf(x);
+  const patch = { ...extra, status: to };
+  if (from !== to) {
+    patch.done = to === 'done';
+    patch.doneAt = to === 'done' ? S.nowISO() : null;
+    patch.log = logEntry(x, `${STATUS_LABEL[from]} → ${STATUS_LABEL[to]}`);
+  }
+  return S.update('tasks', x.id, patch);
+}
+
+function boardTasks() {
+  const t = today(), wkEnd = addDays(weekStart(t), 6), q = ui.board.q.trim().toLowerCase(), Q = ui.board.quick;
+  return S.all('tasks').filter((x) => {
+    if (q && !`${x.key || ''} ${x.title} ${x.description || ''} ${x.category || ''}`.toLowerCase().includes(q)) return false;
+    if (ui.board.epic !== 'all' && (x.category || '') !== ui.board.epic) return false;
+    if (ui.board.type !== 'all' && (x.type || 'task') !== ui.board.type) return false;
+    if (Q.has('week') && !(x.due && x.due <= wkEnd && !x.done)) return false;
+    if (Q.has('overdue') && !(x.due && x.due < t && !x.done)) return false;
+    if (Q.has('high') && !['highest', 'high'].includes(x.priority)) return false;
+    if (Q.has('flag') && !x.flagged) return false;
+    return true;
+  });
+}
+
+function issueCard(x) {
+  const over = !x.done && x.due && x.due < today();
+  const cl = x.checklist || [];
+  const cd = cl.filter((i) => i.done).length;
+  const tags = [
+    x.flagged ? `<span class="flag-lz">${ic('flag', 12)} Blocked</span>` : '',
+    x.category ? `<span class="epic-lz" style="--h:${hue(x.category)}">${esc(x.category)}</span>` : '',
+    cl.length ? `<span class="kc-check ${cd === cl.length ? 'all' : ''}">${ic('check', 12)} ${cd}/${cl.length}</span>` : '',
+    (x.comments || []).length ? `<span class="kc-check">${ic('chat', 12)} ${x.comments.length}</span>` : '',
+  ].join('');
+  return `<div class="kcard ${x.flagged ? 'flagged' : ''} ${x.done ? 'is-done' : ''}" data-id="${x.id}" data-order="${x.order ?? Date.parse(x.createdAt || 0)}" data-act="openIssue" tabindex="0" role="button" aria-label="${esc(x.key || '')} ${esc(x.title)}">
+    <div class="kc-title">${esc(x.title)}</div>
+    ${tags ? `<div class="kc-tags">${tags}</div>` : ''}
+    <div class="kc-foot">${typeIcon(typeOf(x))}<span class="kc-key">${esc(x.key || '')}</span><span class="spacer"></span>
+      ${x.due ? `<span class="kc-due ${over ? 'over' : ''}" title="Due ${fmtDate(x.due)}${x.time ? ' ' + fmtTime(x.time) : ''}">${ic('calendar', 12)} ${fmtDate(x.due)}</span>` : ''}
+      ${x.points != null && x.points !== '' ? `<span class="kc-pts" title="Story points">${x.points}</span>` : ''}
+      ${prioIcon(x.priority)}<span class="kav" title="Sagar">SP</span></div>
+    <button class="kgrip" tabindex="-1" aria-label="Drag to move">${ic('grip', 14)}</button>
+  </div>`;
+}
+
+function laneSpec(items) {
+  const g = ui.board.group;
+  if (g === 'epic') {
+    const keys = [...new Set(items.map((x) => x.category || ''))].sort((a, b) => (a === '') - (b === '') || a.localeCompare(b));
+    return keys.map((k) => ({ key: k, label: k || 'No epic', items: items.filter((x) => (x.category || '') === k) }));
+  }
+  if (g === 'priority') return PRIOS.map(([k, l]) => ({ key: k, label: `${l} priority`, items: items.filter((x) => (x.priority || 'med') === k) })).filter((l) => l.items.length);
+  return [{ key: null, label: '', items }];
+}
+
+function taskBoardHTML() {
+  const cutoff = addDays(today(), -14);
+  let hiddenDone = 0;
+  const items = boardTasks().filter((x) => {
+    if (statusOf(x) === 'done' && !ui.board.showOldDone && x.doneAt && ymd(new Date(x.doneAt)) < cutoff) { hiddenDone++; return false; }
+    return true;
+  });
+  const lanes = laneSpec(items);
+  const head = TASK_COLS.map((c) => {
+    const xs = items.filter((x) => statusOf(x) === c.id);
+    const pts = xs.reduce((s, x) => s + (+x.points || 0), 0);
+    const over = c.wip && xs.length > c.wip;
+    return `<div class="kcol-head ${over ? 'over' : ''}" title="${over ? `More than ${c.wip} in progress — finish something first` : ''}"><span>${c.label}</span><span class="kcount">${xs.length}${c.wip ? ` <small>/ max ${c.wip}</small>` : ''}</span>${pts ? `<span class="kpts" title="Story points">${pts}</span>` : ''}</div>`;
+  }).join('');
+  const rows = lanes.map((lane, li) => {
+    const collapsed = lane.key != null && ui.board.collapsed.has(lane.key);
+    const laneHead = lane.key == null ? '' : `<button class="klane-head" data-act="laneToggle" data-v="${esc(lane.key)}">${ic(collapsed ? 'chevR' : 'chevD', 14)} <b>${esc(lane.label)}</b> <span class="muted small">${lane.items.length} issue${lane.items.length === 1 ? '' : 's'}</span></button>`;
+    if (collapsed) return laneHead;
+    const bodies = TASK_COLS.map((c) => {
+      const xs = lane.items.filter((x) => statusOf(x) === c.id).sort(byOrder);
+      return `<div class="kcol-body" data-status="${c.id}"${lane.key != null ? ` data-lane="${esc(lane.key)}"` : ''}>
+        ${xs.map(issueCard).join('')}
+        ${c.id === 'done' && li === 0 && (hiddenDone || ui.board.showOldDone) ? `<button class="kmore" data-act="toggleOldDone">${ui.board.showOldDone ? 'Hide older done issues' : `+ ${hiddenDone} done more than 14 days ago`}</button>` : ''}
+        <form class="kquick" data-form="quickIssue" data-status="${c.id}"${lane.key != null ? ` data-lane="${esc(lane.key)}"` : ''}><input class="input" name="title" placeholder="+ Create issue" autocomplete="off" aria-label="Create issue in ${c.label}"></form>
+      </div>`;
+    }).join('');
+    return `${laneHead}<div class="krow">${bodies}</div>`;
+  }).join('');
+  return `<div class="kboard-scroll" data-board="tasks"><div class="kboard" style="--cols:${TASK_COLS.length}"><div class="krow khead">${head}</div>${rows}</div></div>`;
+}
+
+function boardToolbar() {
+  const tasks = S.all('tasks');
+  const epics = [...new Set(tasks.map((x) => x.category).filter(Boolean))].sort();
+  return `<div class="ktoolbar">
+    <label class="search">${ic('search', 16)}<input class="input" placeholder="Search board" value="${esc(ui.board.q)}" data-input="boardQ"></label>
+    <span class="kav lg" title="Sagar">SP</span>
+    <div class="chips">${[['week', 'Due this week'], ['overdue', 'Overdue'], ['high', 'High priority'], ['flag', 'Blocked']].map(([k, l]) => `<button class="chip ${ui.board.quick.has(k) ? 'active' : ''}" data-act="boardQuick" data-v="${k}">${l}</button>`).join('')}</div>
+    <span class="spacer"></span>
+    <select class="input sm" data-change="boardEpic" aria-label="Epic"><option value="all">All epics</option>${opts(epics, ui.board.epic)}</select>
+    <select class="input sm" data-change="boardType" aria-label="Type"><option value="all">All types</option>${opts(ISSUE_TYPES.map(([k, l]) => [k, l]), ui.board.type)}</select>
+    <select class="input sm" data-change="boardGroup" aria-label="Swimlanes">${opts([['none', 'No swimlanes'], ['epic', 'Swimlanes: Epic'], ['priority', 'Swimlanes: Priority']], ui.board.group)}</select>
+  </div>`;
+}
+
+/* ---------------- Issue detail sheet ---------------- */
+function issueSheetHTML(x) {
+  const t = typeOf(x);
+  const cl = x.checklist || [];
+  const cd = cl.filter((i) => i.done).length;
+  const epics = [...new Set(S.all('tasks').map((y) => y.category).filter(Boolean))].sort();
+  const activity = [
+    ...(x.comments || []).map((c) => ({ ...c, kind: 'comment' })),
+    ...(x.log || []).map((l) => ({ ...l, kind: 'log' })),
+  ].sort((a, b) => (b.at || '').localeCompare(a.at || ''));
+  return `<div class="sheet-wrap">
+    <header class="sheet-head">
+      ${typeIcon(t)}<span class="kc-key">${esc(x.key || '')}</span>
+      <span class="spacer"></span>
+      <button class="btn sm ${x.flagged ? 'flag-on' : 'ghost'}" data-act="issueFlag">${ic('flag', 14)} ${x.flagged ? 'Blocked' : 'Flag as blocked'}</button>
+      <button class="icon-btn" data-act="issueDelete" aria-label="Delete issue">${ic('trash', 16)}</button>
+      <button class="icon-btn" data-act="closeModal" aria-label="Close">${ic('x')}</button>
+    </header>
+    <div class="sheet-body">
+      <div class="sheet-main">
+        <textarea class="issue-title" rows="1" data-change="issueField" data-f="title" aria-label="Summary">${esc(x.title)}</textarea>
+        <div class="row">
+          <select class="status-sel st-${statusOf(x)}" data-change="issueStatus" aria-label="Status">${opts(TASK_COLS.map((c) => [c.id, c.label]), statusOf(x))}</select>
+          ${x.done && x.doneAt ? `<span class="good small">${ic('check', 14)} Resolved ${fmtDT(x.doneAt)}</span>` : ''}
+        </div>
+        <h4>Description</h4>
+        <textarea class="input" rows="4" data-change="issueField" data-f="description" placeholder="Add a description…">${esc(x.description || x.notes || '')}</textarea>
+        <h4>Checklist ${cl.length ? `<span class="muted small">${cd}/${cl.length}</span>` : ''}</h4>
+        ${cl.length ? `<div class="progress thin"><span style="width:${(cd * 100) / cl.length}%"></span></div>` : ''}
+        <div class="checklist">${cl.map((i) => `<div class="ck-row"><label><input type="checkbox" ${i.done ? 'checked' : ''} data-change="checkItem" data-i="${i.id}"><span class="${i.done ? 'strike' : ''}">${esc(i.text)}</span></label><button class="icon-btn sm" data-act="delCheck" data-i="${i.id}" aria-label="Remove item">${ic('x', 14)}</button></div>`).join('')}</div>
+        <form class="inline-add" data-form="addCheck"><input class="input" name="text" placeholder="Add a checklist item" autocomplete="off"><button class="btn sm">Add</button></form>
+        <h4>Activity</h4>
+        <form class="comment-form" data-form="addComment"><textarea class="input" name="text" rows="2" placeholder="Add a comment… (Ctrl+Enter saves)"></textarea><div class="row"><span class="spacer"></span><button class="btn primary sm">Comment</button></div></form>
+        <div class="activity">${activity.map((a) => a.kind === 'comment'
+          ? `<div class="act comment"><span class="kav">SP</span><div class="grow"><div class="small"><b>Sagar</b> <span class="muted">${fmtDT(a.at)}</span></div><div class="act-text">${esc(a.text)}</div><button class="link-btn small" data-act="delComment" data-i="${a.id}">Delete</button></div></div>`
+          : `<div class="act log"><span class="dot"></span><div class="small"><b>Sagar</b> ${esc(a.text)} <span class="muted">· ${fmtDT(a.at)}</span></div></div>`).join('') || empty('No activity yet.')}</div>
+      </div>
+      <aside class="sheet-side">
+        <div class="side-box">
+          <h4>Details</h4>
+          ${field('Type', `<select class="input sm" data-change="issueField" data-f="type">${opts(ISSUE_TYPES.map(([k, l]) => [k, l]), x.type || 'task')}</select>`)}
+          ${field('Priority', `<select class="input sm" data-change="issueField" data-f="priority">${opts(PRIOS, x.priority || 'med')}</select>`)}
+          ${field('Epic', `<input class="input sm" list="epicList" value="${esc(x.category || '')}" data-change="issueField" data-f="category" placeholder="None"><datalist id="epicList">${epics.map((e) => `<option value="${esc(e)}">`).join('')}</datalist>`)}
+          ${field('Due date', `<input class="input sm" type="date" value="${esc(x.due || '')}" data-change="issueField" data-f="due">`)}
+          ${field('Time', `<input class="input sm" type="time" value="${esc(x.time || '')}" data-change="issueField" data-f="time">`)}
+          ${field('Story points', `<input class="input sm" type="number" min="0" step="1" value="${x.points ?? ''}" data-change="issueField" data-f="points">`)}
+          <div class="kv"><span>Assignee</span><b><span class="kav">SP</span> Sagar</b></div>
+        </div>
+        <div class="muted small side-dates">Created ${fmtDT(x.createdAt)}<br>Updated ${fmtDT(x.updatedAt)}${x.doneAt ? `<br>Resolved ${fmtDT(x.doneAt)}` : ''}</div>
+      </aside>
+    </div>
+  </div>`;
+}
+function openIssue(id) {
+  const x = S.get('tasks', id);
+  if (!x) return;
+  ui.issueId = id;
+  const dlg = $('#modal');
+  const keep = dlg.open ? dlg.querySelector('.sheet-body')?.scrollTop : 0;
+  dlg.classList.add('sheet');
+  dlg.innerHTML = issueSheetHTML(x);
+  if (!dlg.open) dlg.showModal();
+  const body = dlg.querySelector('.sheet-body');
+  if (body) body.scrollTop = keep || 0;
+  const ttl = dlg.querySelector('.issue-title');
+  if (ttl) { ttl.style.height = 'auto'; ttl.style.height = ttl.scrollHeight + 'px'; }
+}
+const curIssue = () => S.get('tasks', ui.issueId);
+const FIELD_LABEL = { title: 'Summary', description: 'Description', type: 'Type', priority: 'Priority', category: 'Epic', due: 'Due date', time: 'Time', points: 'Story points' };
+function fieldText(f, v) {
+  if (v == null || v === '') return 'none';
+  if (f === 'priority') return PRIO_LABEL[v];
+  if (f === 'type') return ISSUE_TYPES.find((t) => t[0] === v)?.[1] || v;
+  if (f === 'due') return fmtDate(v);
+  if (f === 'time') return fmtTime(v);
+  return String(v).length > 40 ? String(v).slice(0, 40) + '…' : String(v);
+}
+
+/* ---------------- Ideas board ---------------- */
+function ideaCard(x) {
+  return `<div class="kcard" data-id="${esc(x.id)}" data-order="${x.order ?? Date.parse(x.createdAt || 0)}" data-act="editIdea" tabindex="0" role="button" aria-label="${esc(x.title)}">
+    <div class="kc-title">${esc(x.title)}</div>
+    ${x.type ? `<div class="kc-tags"><span class="epic-lz" style="--h:${hue(x.type)}">${esc(x.type)}</span></div>` : ''}
+    <div class="kc-foot">${typeIcon(ISSUE_TYPES[1])}${x.script ? `<span class="kc-check" title="Has a script">${ic('pen', 12)} script</span>` : ''}${x.link ? `<span class="kc-check" title="Has a reference">${ic('link', 12)}</span>` : ''}<span class="spacer"></span>
+      ${x.planDate ? `<span class="kc-due">${ic('calendar', 12)} ${fmtDate(x.planDate)}</span>` : ''}
+      ${x.priority ? prioIcon({ High: 'high', Medium: 'med', Low: 'low' }[x.priority] || 'med') : ''}</div>
+    <button class="kgrip" tabindex="-1" aria-label="Drag to move">${ic('grip', 14)}</button>
+  </div>`;
+}
+function ideaBoardHTML() {
+  const q = ui.ideaQ.trim().toLowerCase();
+  const items = S.all('ideas').filter((x) => !q || `${x.title} ${x.script || ''} ${x.notes || ''} ${x.type || ''}`.toLowerCase().includes(q));
+  const head = IDEA_STATUSES.map((s) => `<div class="kcol-head"><span>${s}</span><span class="kcount">${items.filter((x) => (x.status || 'Backlog') === s).length}</span></div>`).join('');
+  const bodies = IDEA_STATUSES.map((s) => `<div class="kcol-body" data-status="${esc(s)}">
+    ${items.filter((x) => (x.status || 'Backlog') === s).sort(byOrder).map(ideaCard).join('')}
+    <form class="kquick" data-form="quickIdea" data-status="${esc(s)}"><input class="input" name="title" placeholder="+ Add idea" autocomplete="off" aria-label="Add idea to ${s}"></form>
+  </div>`).join('');
+  return `<div class="kboard-scroll" data-board="ideas"><div class="kboard" style="--cols:${IDEA_STATUSES.length}"><div class="krow khead">${head}</div><div class="krow">${bodies}</div></div></div>`;
+}
+
+/* ---------------- Drag and drop (mouse anywhere on a card; touch via the grip) ---------------- */
+let drag = null, justDragged = false;
+function dropOrder(before, after) {
+  if (before != null && after != null) return (before + after) / 2;
+  if (before != null) return before + 1000;
+  if (after != null) return after - 1000;
+  return Date.now();
+}
+function applyDrop(board, id, status, lane, order) {
+  if (board === 'tasks') {
+    let x = S.get('tasks', id);
+    if (!x) return;
+    const extra = { order };
+    if (lane !== undefined && ui.board.group === 'epic' && (x.category || '') !== lane) {
+      x = { ...x, log: logEntry(x, `Epic → ${lane || 'none'}`) };
+      Object.assign(extra, { category: lane || null, log: x.log });
+    }
+    if (lane !== undefined && ui.board.group === 'priority' && (x.priority || 'med') !== lane) {
+      x = { ...x, log: logEntry(x, `Priority → ${PRIO_LABEL[lane]}`) };
+      Object.assign(extra, { priority: lane, log: x.log });
+    }
+    moveTask(x, status, extra);
+  } else {
+    S.update('ideas', id, { status, order });
+  }
+}
+function placeholderAt(x, y) {
+  drag.ghost.style.display = 'none';
+  const el = document.elementFromPoint(x, y);
+  drag.ghost.style.display = '';
+  const body = el?.closest?.('.kcol-body');
+  if (!body || body.closest('[data-board]')?.dataset.board !== drag.board) return;
+  document.querySelectorAll('.kcol-body.drop').forEach((b) => b !== body && b.classList.remove('drop'));
+  body.classList.add('drop');
+  const before = [...body.querySelectorAll('.kcard:not(.kdragging)')].find((c) => { const r = c.getBoundingClientRect(); return y < r.top + r.height / 2; });
+  body.insertBefore(drag.ph, before || body.querySelector('.kmore, .kquick'));
+}
+function autoScroll(x, y) {
+  const sc = drag.card.closest('.kboard-scroll') || document.querySelector(`[data-board="${drag.board}"]`);
+  if (sc) { const r = sc.getBoundingClientRect(); if (x < r.left + 50) sc.scrollLeft -= 14; else if (x > r.right - 50) sc.scrollLeft += 14; }
+  if (y < 90) window.scrollBy(0, -14); else if (y > innerHeight - 90) window.scrollBy(0, 14);
+}
+function endDrag(commit) {
+  const d = drag;
+  drag = null;
+  if (!d?.started) return;
+  const body = d.ph.parentElement;
+  const sib = (dir) => { let s = d.ph[dir]; while (s && (!s.classList.contains('kcard') || s.classList.contains('kdragging'))) s = s[dir]; return s; };
+  const before = sib('previousElementSibling'), after = sib('nextElementSibling');
+  d.ghost.remove();
+  document.body.classList.remove('is-dragging');
+  document.querySelectorAll('.kcol-body.drop').forEach((b) => b.classList.remove('drop'));
+  justDragged = true;
+  setTimeout(() => { justDragged = false; }, 80);
+  if (commit && body) applyDrop(d.board, d.id, body.dataset.status, body.dataset.lane, dropOrder(before ? +before.dataset.order : null, after ? +after.dataset.order : null));
+  render();
+}
+document.addEventListener('pointerdown', (e) => {
+  const card = e.target.closest('.kcard');
+  if (!card || e.button > 0) return;
+  const grip = e.target.closest('.kgrip');
+  if (e.pointerType !== 'mouse' && !grip) return;
+  if (!grip && e.target.closest('button, a, input, select, textarea')) return;
+  const r = card.getBoundingClientRect();
+  drag = { card, id: card.dataset.id, board: card.closest('[data-board]')?.dataset.board, x0: e.clientX, y0: e.clientY, dx: e.clientX - r.left, dy: e.clientY - r.top, w: r.width, h: r.height, started: false };
+  if (grip) e.preventDefault();
+});
+document.addEventListener('pointermove', (e) => {
+  if (!drag) return;
+  if (!drag.started) {
+    if (Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) < 6) return;
+    drag.started = true;
+    const g = drag.card.cloneNode(true);
+    g.classList.add('kghost');
+    g.style.width = drag.w + 'px';
+    document.body.appendChild(g);
+    drag.ghost = g;
+    drag.ph = Object.assign(document.createElement('div'), { className: 'kph' });
+    drag.ph.style.height = drag.h + 'px';
+    drag.card.after(drag.ph);
+    drag.card.classList.add('kdragging');
+    document.body.classList.add('is-dragging');
+  }
+  e.preventDefault();
+  drag.ghost.style.transform = `translate(${e.clientX - drag.dx}px, ${e.clientY - drag.dy}px) rotate(2.5deg)`;
+  placeholderAt(e.clientX, e.clientY);
+  autoScroll(e.clientX, e.clientY);
+}, { passive: false });
+document.addEventListener('pointerup', () => { if (drag) endDrag(true); });
+document.addEventListener('pointercancel', () => { if (drag) endDrag(false); });
+document.addEventListener('click', (e) => { if (justDragged && e.target.closest('.kboard')) { e.preventDefault(); e.stopImmediatePropagation(); } }, true);
+
+// Keyboard: Alt + ←/→ moves the focused card a column, Enter opens it.
+function moveCardByKey(card, dir) {
+  const board = card.closest('[data-board]')?.dataset.board;
+  const cols = board === 'tasks' ? TASK_COLS.map((c) => c.id) : IDEA_STATUSES;
+  const cur = card.closest('.kcol-body')?.dataset.status;
+  const next = cols[cols.indexOf(cur) + dir];
+  if (!next) return;
+  applyDrop(board, card.dataset.id, next, undefined, Date.now());
+  render();
+  setTimeout(() => document.querySelector(`.kcard[data-id="${CSS.escape(card.dataset.id)}"]`)?.focus(), 0);
+}
+
 function viewTasks() {
   const tasks = S.all('tasks');
   const groups = taskBuckets(tasks);
   const cats = [...new Set(tasks.map((x) => x.category).filter(Boolean))];
   const t = today();
-  return `${banner()}
-  <header class="page-head"><div><p class="eyebrow">${groups.today.filter((x) => !x.done).length} left today · ${groups.overdue.length} overdue</p><h1>To-Do</h1></div></header>
+  const head = `<header class="page-head"><div><p class="eyebrow">Playbook / Tasks · ${groups.today.filter((x) => !x.done).length} left today · ${groups.overdue.length} overdue</p><h1>${ui.board.view === 'board' ? 'Board' : 'To-Do list'}</h1></div>
+    <div class="row"><div class="seg">${[['board', 'Board'], ['list', 'List']].map(([k, l]) => `<button class="${ui.board.view === k ? 'on' : ''}" data-act="boardView" data-v="${k}">${l}</button>`).join('')}</div><button class="btn primary" data-act="newIssue">${ic('plus')} Create</button></div></header>`;
+  if (ui.board.view === 'board') {
+    return `${banner()}${head}${boardToolbar()}<div id="boardWrap">${taskBoardHTML()}</div>
+    <p class="muted small">Drag a card to move it (on phone, drag the ⠿ handle). Alt + ← / → moves the selected card. Click a card for its details, checklist, comments and history.</p>`;
+  }
+  return `${banner()}${head}
   <form class="card quick-add" data-form="addTask">
     <input class="input grow" name="title" placeholder="What needs doing?" autocomplete="off" required>
     <input class="input" type="date" name="due" value="${t}" aria-label="Due date">
@@ -916,12 +1278,14 @@ function viewIdeas() {
   const ideas = S.all('ideas');
   const count = (s) => ideas.filter((x) => (x.status || 'Backlog') === s).length;
   return `${banner()}
-  <header class="page-head"><div><p class="eyebrow">${count('Backlog')} in backlog · ${count('Posted')} posted</p><h1>Content ideas</h1></div><button class="btn primary" data-act="addIdea">${ic('plus')} New idea</button></header>
+  <header class="page-head"><div><p class="eyebrow">${count('Backlog')} in backlog · ${count('Posted')} posted</p><h1>Content ideas</h1></div>
+    <div class="row"><div class="seg">${[['board', 'Board'], ['list', 'List']].map(([k, l]) => `<button class="${ui.ideaView === k ? 'on' : ''}" data-act="ideaView" data-v="${k}">${l}</button>`).join('')}</div><button class="btn primary" data-act="addIdea">${ic('plus')} New idea</button></div></header>
+  ${ui.ideaView === 'board' ? `<div class="ktoolbar"><label class="search">${ic('search', 16)}<input class="input" placeholder="Search ideas & scripts" value="${esc(ui.ideaQ)}" data-input="ideaQ"></label></div><div id="ideaBoardWrap">${ideaBoardHTML()}</div>` : `
   <div class="toolbar">
     <div class="chips">${[['all', 'All'], ...IDEA_STATUSES.map((s) => [s, s])].map(([k, l]) => `<button class="chip ${ui.ideaFilter === k ? 'active' : ''}" data-act="ideaFilter" data-v="${esc(k)}">${l} <span class="count">${k === 'all' ? ideas.length : count(k)}</span></button>`).join('')}</div>
     <label class="search">${ic('search', 16)}<input class="input" placeholder="Search ideas & scripts" value="${esc(ui.ideaQ)}" data-input="ideaQ"></label>
   </div>
-  <div class="card idea-list" id="ideaList">${ideaListHTML()}</div>`;
+  <div class="card idea-list" id="ideaList">${ideaListHTML()}</div>`}`;
 }
 
 function rulesText(key) {
@@ -1012,7 +1376,9 @@ function render() {
   const r = ROUTES[route()] ? route() : '';
   document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === r));
   const view = $('#view');
+  const boardScroll = [...view.querySelectorAll('[data-board]')].map((b) => [b.dataset.board, b.scrollLeft]);
   view.innerHTML = S.status.needsKey ? viewSetupKey() : ROUTES[r]();
+  for (const [name, left] of boardScroll) { const b = view.querySelector(`[data-board="${name}"]`); if (b) b.scrollLeft = left; }
   document.title = `${{ '': 'Dashboard', schedule: 'Schedule', tasks: 'To-Do', insta: 'Instagram', mybook: 'My Book', thoughts: 'Thoughts', books: 'Bookshelf', ideas: 'Ideas', settings: 'Settings' }[r]} · Playbook`;
   afterRender();
 }
@@ -1020,29 +1386,11 @@ function render() {
 // Don't yank the page out from under someone typing; re-render once they leave the field.
 let pendingRender = false;
 const typing = () => { const a = document.activeElement; return a && $('#view').contains(a) && /INPUT|TEXTAREA|SELECT/.test(a.tagName) && a.type !== 'checkbox'; };
-function scheduleRender() { if (typing()) pendingRender = true; else render(); }
+function scheduleRender() { if (typing() || drag?.started) pendingRender = true; else render(); }
 document.addEventListener('focusout', () => setTimeout(() => { if (pendingRender && !typing()) { pendingRender = false; render(); } }, 0));
 
 /* ---------------- actions ---------------- */
 const byId = (col, el) => S.get(col, el.dataset.id);
-
-function taskModal(x) {
-  openModal('Edit task', `
-    ${field('Task', `<input class="input" name="title" value="${esc(x.title)}" required>`)}
-    <div class="form-grid">
-      ${field('Due date', `<input class="input" type="date" name="due" value="${esc(x.due || '')}">`)}
-      ${field('Time', `<input class="input" type="time" name="time" value="${esc(x.time || '')}">`)}
-      ${field('Priority', `<select class="input" name="priority">${opts(PRIOS, x.priority || 'med')}</select>`)}
-      ${field('Category', `<input class="input" name="category" value="${esc(x.category || '')}">`)}
-    </div>
-    ${field('Notes', `<textarea class="input" name="notes" rows="3">${esc(x.notes || '')}</textarea>`)}
-    <label class="check-line"><input type="checkbox" name="done" ${x.done ? 'checked' : ''}> Done${x.doneAt ? ` <span class="muted small">(${fmtDT(x.doneAt)})</span>` : ''}</label>
-    <p class="muted small">Created ${fmtDT(x.createdAt)}</p>`,
-  (v) => {
-    const done = !!v.done;
-    S.update('tasks', x.id, { title: v.title.trim(), due: v.due || null, time: v.time || null, priority: v.priority, category: v.category.trim() || null, notes: v.notes.trim() || null, done, doneAt: done ? x.doneAt || S.nowISO() : null });
-  });
-}
 
 function bookModal(b = {}) {
   openModal(b.id ? 'Edit book' : 'Add book', `
@@ -1127,8 +1475,19 @@ const ACTS = {
     if (location.hash === '#/' + r) render(); else location.hash = '#/' + r;
   },
   palette: (el) => { try { localStorage.setItem('tracker.palette', el.dataset.v); } catch {} applyTheme(); render(); },
-  toggleTask: (el) => { const x = byId('tasks', el); if (x) S.update('tasks', x.id, { done: !x.done, doneAt: x.done ? null : S.nowISO() }); },
-  editTask: (el) => { const x = byId('tasks', el); if (x) taskModal(x); },
+  toggleTask: (el) => { const x = byId('tasks', el); if (x) moveTask(x, x.done ? 'todo' : 'done'); },
+  editTask: (el) => openIssue(el.dataset.id),
+  openIssue: (el) => openIssue(el.dataset.id),
+  boardView: (el) => { ui.board.view = el.dataset.v; render(); },
+  ideaView: (el) => { ui.ideaView = el.dataset.v; render(); },
+  newIssue: () => newTaskModal(today(), ''),
+  boardQuick: (el) => { const q = ui.board.quick, v = el.dataset.v; q.has(v) ? q.delete(v) : q.add(v); render(); },
+  laneToggle: (el) => { const c = ui.board.collapsed, v = el.dataset.v; c.has(v) ? c.delete(v) : c.add(v); render(); },
+  toggleOldDone: () => { ui.board.showOldDone = !ui.board.showOldDone; render(); },
+  issueFlag: () => { const x = curIssue(); if (!x) return; S.update('tasks', x.id, { flagged: !x.flagged, log: logEntry(x, x.flagged ? 'Removed the blocked flag' : 'Flagged as blocked') }); openIssue(x.id); },
+  issueDelete: () => { const x = curIssue(); if (x && confirm(`Delete ${x.key || ''} "${x.title}"? This cannot be undone.`)) { closeModal(); S.remove('tasks', x); toast(`${x.key || 'Issue'} deleted`); } },
+  delCheck: (el) => { const x = curIssue(); if (!x) return; S.update('tasks', x.id, { checklist: (x.checklist || []).filter((i) => i.id !== el.dataset.i) }); openIssue(x.id); },
+  delComment: (el) => { const x = curIssue(); if (x && confirm('Delete this comment?')) { S.update('tasks', x.id, { comments: (x.comments || []).filter((c) => c.id !== el.dataset.i) }); openIssue(x.id); } },
   delTask: (el) => { const x = byId('tasks', el); if (x && confirm(`Delete "${x.title}"?`)) S.remove('tasks', x); },
   taskFilter: (el) => { ui.taskFilter = el.dataset.v; render(); },
   expand: (el) => { ui.expanded.has(el.dataset.id) ? ui.expanded.delete(el.dataset.id) : ui.expanded.add(el.dataset.id); render(); },
@@ -1188,10 +1547,40 @@ const FORMS = {
   addTask: (f) => {
     const v = vals(f);
     if (!v.title?.trim()) return;
-    S.put('tasks', { title: v.title.trim(), due: v.due || null, time: v.time || null, priority: v.priority || 'med', category: v.category?.trim() || null, done: false, doneAt: null });
+    createTask({ title: v.title.trim(), due: v.due || null, time: v.time || null, priority: v.priority || 'med', category: v.category?.trim() || null });
     toast('Task added');
     render();
     $('[data-form=addTask] [name=title]')?.focus();
+  },
+  quickIssue: (f) => {
+    const title = new FormData(f).get('title')?.trim();
+    if (!title) return;
+    const extra = {};
+    if (f.dataset.lane !== undefined && ui.board.group === 'epic') extra.category = f.dataset.lane || null;
+    if (f.dataset.lane !== undefined && ui.board.group === 'priority') extra.priority = f.dataset.lane;
+    createTask({ title, status: f.dataset.status, ...extra });
+    render();
+    document.querySelector(`.kquick[data-status="${f.dataset.status}"] input`)?.focus();
+  },
+  quickIdea: (f) => {
+    const title = new FormData(f).get('title')?.trim();
+    if (!title) return;
+    S.put('ideas', { title, status: f.dataset.status, order: Date.now() });
+    render();
+    document.querySelector(`.kquick[data-status="${CSS.escape(f.dataset.status)}"] input`)?.focus();
+  },
+  addCheck: (f) => {
+    const x = curIssue(), text = new FormData(f).get('text')?.trim();
+    if (!x || !text) return;
+    S.update('tasks', x.id, { checklist: [...(x.checklist || []), { id: S.uid(), text, done: false }] });
+    openIssue(x.id);
+    $('#modal [data-form=addCheck] input')?.focus();
+  },
+  addComment: (f) => {
+    const x = curIssue(), text = new FormData(f).get('text')?.trim();
+    if (!x || !text) return;
+    S.update('tasks', x.id, { comments: [...(x.comments || []), { id: S.uid(), at: S.nowISO(), text }] });
+    openIssue(x.id);
   },
   addThought: (f) => { const fd = new FormData(f); saveThought(fd.get('text') || '', fd.get('category')); render(); },
   manualReel: (f) => {
@@ -1220,6 +1609,32 @@ const CHANGES = {
     if (done) toast(`Finished "${b.title}" 🎉`);
   },
   ideaStatus: (el) => S.update('ideas', el.dataset.id, { status: el.value }),
+  boardEpic: (el) => { ui.board.epic = el.value; render(); },
+  boardType: (el) => { ui.board.type = el.value; render(); },
+  boardGroup: (el) => { ui.board.group = el.value; render(); },
+  issueStatus: (el) => { const x = curIssue(); if (x) { moveTask(x, el.value); openIssue(x.id); } },
+  checkItem: (el) => {
+    const x = curIssue();
+    if (!x) return;
+    S.update('tasks', x.id, { checklist: (x.checklist || []).map((i) => (i.id === el.dataset.i ? { ...i, done: el.checked } : i)) });
+    openIssue(x.id);
+  },
+  issueField: (el) => {
+    const x = curIssue(), f = el.dataset.f;
+    if (!x) return;
+    let v = el.value.trim();
+    if (f === 'title' && !v) { el.value = x.title; return; }
+    if (f === 'points') v = v === '' ? null : Math.max(0, +v);
+    else if (v === '') v = null;
+    const old = f === 'description' ? (x.description ?? x.notes ?? null) : (x[f] ?? null);
+    if (old === v) return;
+    const patch = { [f]: v };
+    if (f === 'description') patch.notes = null;
+    if (f !== 'description' && f !== 'title') patch.log = logEntry(x, `${FIELD_LABEL[f]} → ${fieldText(f, v)}`);
+    if (f === 'title') patch.log = logEntry(x, 'Renamed the issue');
+    S.update('tasks', x.id, patch);
+    if (f !== 'title' && f !== 'description') openIssue(x.id);
+  },
   reelType: (el) => S.update('reels', el.dataset.id, { contentType: el.value || null }),
   importExcel: async (el) => {
     const file = el.files?.[0];
@@ -1250,7 +1665,8 @@ const CHANGES = {
 const INPUTS = {
   taskQ: (el) => { ui.taskQ = el.value; $('#taskList').innerHTML = taskListHTML(); },
   thoughtQ: (el) => { ui.thoughtQ = el.value; $('#thoughtList').innerHTML = thoughtListHTML(); },
-  ideaQ: (el) => { ui.ideaQ = el.value; $('#ideaList').innerHTML = ideaListHTML(); },
+  ideaQ: (el) => { ui.ideaQ = el.value; const l = $('#ideaList'), b = $('#ideaBoardWrap'); if (l) l.innerHTML = ideaListHTML(); if (b) b.innerHTML = ideaBoardHTML(); },
+  boardQ: (el) => { ui.board.q = el.value; $('#boardWrap').innerHTML = taskBoardHTML(); },
   draft: (el) => { try { localStorage.setItem('tracker.draft', el.value); } catch {} },
   globalSearch: (el) => {
     ui.searchQ = el.value;
@@ -1272,6 +1688,12 @@ document.addEventListener('change', (e) => { const el = e.target.closest('[data-
 document.addEventListener('input', (e) => { const el = e.target.closest('[data-input]'); if (el) INPUTS[el.dataset.input]?.(el); });
 document.addEventListener('click', (e) => { if (!e.target.closest('.top-search')) { const pop = $('#searchPop'); if (pop) pop.hidden = true; } });
 document.addEventListener('keydown', (e) => {
+  if (e.target.classList?.contains('issue-title') && e.key === 'Enter') { e.preventDefault(); e.target.blur(); return; }
+  const kc = e.target.closest?.('.kcard');
+  if (kc && e.target === kc) {
+    if (e.altKey && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) { e.preventDefault(); moveCardByKey(kc, e.key === 'ArrowRight' ? 1 : -1); return; }
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); kc.click(); return; }
+  }
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); $('#globalSearch')?.focus(); return; }
   if (e.key === 'Escape') { if (e.target.id === 'globalSearch') closeSearch(); if (innerWidth <= 820) $('#shell').classList.remove('rail-open'); }
   if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
@@ -1308,7 +1730,9 @@ async function boot() {
     window.scrollTo(0, 0);
   });
   render();
+  $('#modal').addEventListener('close', () => { resetModal(); render(); });
   try { await S.init(); } catch (e) { console.error(e); S.status.error = 'Could not reach Firebase: ' + e.message; }
+  try { ensureKeys(); } catch (e) { console.error(e); }
   render();
 }
 boot();
