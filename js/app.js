@@ -54,6 +54,7 @@ const ICONS = {
   upload: '<path d="M12 21V9M7 14l5-5 5 5M5 3h14"/>',
   clip: '<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+  briefcase: '<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 13h18"/>',
   chart: '<path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-6"/>',
   chevL: '<path d="m15 18-6-6 6-6"/>',
   chevR: '<path d="m9 18 6-6-6-6"/>',
@@ -430,6 +431,7 @@ function todoPanel() {
 }
 
 /* ---------------- Dashboard ---------------- */
+const TEAM_ART = `<svg viewBox="0 0 120 120" aria-hidden="true"><circle cx="60" cy="60" r="44" style="fill:var(--accent-soft)"/><circle cx="47" cy="50" r="10" style="fill:none;stroke:var(--accent);stroke-width:4"/><path d="M29 82c2-11 9-17 18-17s16 6 18 17" style="fill:none;stroke:var(--accent);stroke-width:4;stroke-linecap:round"/><circle cx="75" cy="46" r="8" style="fill:none;stroke:var(--accent-2);stroke-width:4"/><path d="M69 62c3-1 5-1 7-1 8 0 14 6 15 15" style="fill:none;stroke:var(--accent-2);stroke-width:4;stroke-linecap:round"/><path d="M96 22l3 7 7 3-7 3-3 7-3-7-7-3 7-3z" style="fill:var(--accent-2)"/></svg>`;
 const PROMO_ART = `<svg viewBox="0 0 120 120" aria-hidden="true"><circle cx="60" cy="60" r="44" style="fill:var(--accent-soft)"/><rect x="34" y="40" width="52" height="40" rx="10" style="fill:none;stroke:var(--accent);stroke-width:4"/><circle cx="60" cy="60" r="10" style="fill:none;stroke:var(--accent);stroke-width:4"/><circle cx="76" cy="49" r="2.6" style="fill:var(--accent)"/><path d="M96 22l3 7 7 3-7 3-3 7-3-7-7-3 7-3z" style="fill:var(--accent-2)"/><path d="M22 86l2 4.5 4.5 2-4.5 2-2 4.5-2-4.5-4.5-2 4.5-2z" style="fill:var(--accent)"/></svg>`;
 
 function readingCard(reading) {
@@ -460,7 +462,7 @@ function teamPromo() {
   const co = allTasks().filter(isCo);
   const mine = co.filter((x) => assigneeOf(x) === ME() && !x.done).length;
   return `<section class="promo c-promo">
-      <div class="promo-art">${PROMO_ART}</div>
+      <div class="promo-art">${TEAM_ART}</div>
       <h3>Company <em>board</em></h3>
       <p>${mine} open for you · ${co.filter((x) => statusOf(x) === 'progress').length} in progress across the team</p>
       <button class="btn primary pill" data-act="openCompany">Open board</button>
@@ -471,7 +473,7 @@ function viewDashboard() {
   const t = today();
   const tasks = myTasks();
   const g = taskBuckets(tasks);
-  const insta = hasFeat('insta'), book = hasFeat('mybook');
+  const insta = hasFeat('insta'), book = true;
   const coOpen = S.all('ctasks').filter((x) => statusOf(x) === 'progress').length;
   const left = g.today.filter((x) => !x.done).length;
   const acc = accuracy(tasks);
@@ -575,13 +577,15 @@ function closeSearch() {
 }
 
 /* ---------------- Navigation ---------------- */
-const NAV = [['', 'Dashboard', 'home'], ['schedule', 'Schedule', 'calendar'], ['tasks', 'To-Do', 'todo'], ['insta', 'Instagram', 'insta'], ['mybook', 'My Book', 'chart'], ['thoughts', 'Thoughts', 'pen'], ['books', 'Bookshelf', 'book'], ['ideas', 'Content ideas', 'bulb']];
-const BOTTOM_NAV = ['', 'schedule', 'tasks', 'thoughts', 'mybook'];
+const NAV = [['', 'Dashboard', 'home'], ['schedule', 'Schedule', 'calendar'], ['tasks', 'To-Do', 'todo'], ['insta', 'Instagram', 'insta'], ['company', 'Company shelf', 'briefcase'], ['thoughts', 'Thoughts', 'pen'], ['books', 'Bookshelf', 'book'], ['ideas', 'Content ideas', 'bulb']];
+const BOTTOM_NAV = ['', 'schedule', 'tasks', 'thoughts', 'company'];
 function buildNav() {
-  const allowed = ([r]) => !['insta', 'mybook'].includes(r) || hasFeat(r);
+  const gs = $('#globalSearch');
+  if (gs) gs.placeholder = innerWidth <= 820 ? 'Search' : 'Type to search…';
+  const allowed = ([r]) => r !== 'insta' || hasFeat('insta');
   const link = ([r, l, i]) => `<a href="#/${r}" data-nav="${r}" data-tip="${l}">${ic(i, 20)}<span class="lbl">${l}</span></a>`;
   $('#rail').innerHTML = NAV.filter(allowed).map(link).join('') + `<div class="rail-foot">${link(['settings', 'Settings', 'sliders'])}</div>`;
-  $('#bottombar').innerHTML = BOTTOM_NAV.map((r) => NAV.find((n) => n[0] === r)).filter(allowed).concat(hasFeat('mybook') ? [] : [['books', 'Books', 'book']]).map(([r, l, i]) => `<a href="#/${r}" data-nav="${r}">${ic(i, 22)}<span>${r === '' ? 'Home' : l}</span></a>`).join('');
+  $('#bottombar').innerHTML = BOTTOM_NAV.map((r) => NAV.find((n) => n[0] === r)).filter(allowed).map(([r, l, i]) => `<a href="#/${r}" data-nav="${r}">${ic(i, 22)}<span>${r === '' ? 'Home' : r === 'company' ? 'Company' : l}</span></a>`).join('');
   try { if (localStorage.getItem('tracker.rail') === 'open' && innerWidth > 820) $('#shell').classList.add('rail-open'); } catch {}
   const av = $('.topbar .avatar');
   if (av) { const u = meUser(); av.textContent = S.status.user ? u.initials : ''; av.style.background = S.status.user ? u.color : ''; av.style.color = S.status.user ? '#17112a' : ''; av.title = S.status.user ? `${u.name} · settings` : ''; }
@@ -1206,6 +1210,29 @@ function myBookCard(cls = '') {
     </section>`;
 }
 
+function viewCompany() {
+  const mb = S.get('mybook', 'mybook');
+  const b = mb?.book || {};
+  const co = allTasks().filter(isCo);
+  const dayRs = (b.positions || []).reduce((t, x) => t + (x.day_rs || 0), 0);
+  return `${banner()}
+  <header class="page-head"><div><p class="eyebrow">Shared by ${USERS.map((u) => esc(u.name)).join(' & ')} · everything market-related lives here</p><h1>Company shelf</h1></div></header>
+  <div class="shelf">
+    <a class="shelf-card" href="#/mybook">
+      <span class="shelf-ic">${ic('chart', 22)}</span>
+      <span class="grow"><b>My Book</b><small>12-stock weekly momentum book · real money</small>
+        ${mb ? `<span class="shelf-stats"><span><b>${inr(b.nav)}</b> NAV</span><span><b class="${sign(b.pnl)}">${sPct(b.pnl_pct)}</b> P&amp;L</span><span><b class="${sign(dayRs)}">${sInr(dayRs)}</b> last session</span><span><b>${(b.positions || []).length}</b> holdings</span></span><small>Close of ${fmtDate(mb.asOf)} · next review ${fmtDate(b.next_review?.review)}</small>` : '<small>Arrives from Sector Scope after the market closes.</small>'}
+      </span>${ic('arrowR', 18)}</a>
+    <button class="shelf-card" data-act="openCompany">
+      <span class="shelf-ic">${ic('users', 22)}</span>
+      <span class="grow"><b>Company board</b><small>${co.filter((x) => !x.done).length} open · ${co.filter((x) => statusOf(x) === 'progress').length} in progress · ${co.filter((x) => x.done).length} done</small></span>${ic('arrowR', 18)}</button>
+    <div class="shelf-card soon">
+      <span class="shelf-ic">${ic('plus', 22)}</span>
+      <span class="grow"><b>More from Sector Scope</b><small>Coming next: themes, scorecards, research notes and paper books, shared here for both of you.</small></span></div>
+  </div>
+  ${teamCard()}`;
+}
+
 function viewMyBook() {
   const s = S.get('mybook', 'mybook');
   if (!s) return `${banner()}<header class="page-head"><div><p class="eyebrow">From Sector Scope</p><h1>My Book</h1></div></header>
@@ -1227,7 +1254,7 @@ function viewMyBook() {
   const tradeList = (xs) => (xs || []).map((x) => `${esc(x.ticker)}${x.qty ? ` ×${x.qty}` : ''}`).join(', ') || '—';
 
   return `${banner()}
-  <header class="page-head"><div><p class="eyebrow">Sector Scope · close of ${fmtDate(s.asOf)} · updated ${fmtDT(s.syncedAt)}</p><h1>My Book</h1></div>
+  <header class="page-head"><div><p class="eyebrow"><a href="#/company">Company shelf</a> / Sector Scope · close of ${fmtDate(s.asOf)} · updated ${fmtDT(s.syncedAt)}</p><h1>My Book</h1></div>
     <div class="sync-pill">${esc(b.name || 'My Book')}</div></header>
 
   <h2 class="section-title">Total portfolio</h2>
@@ -1464,12 +1491,12 @@ function viewSetupKey() {
 }
 
 /* ---------------- router & render ---------------- */
-const ROUTES = { '': viewDashboard, schedule: viewSchedule, tasks: viewTasks, insta: viewInsta, mybook: viewMyBook, thoughts: viewThoughts, books: viewBooks, ideas: viewIdeas, settings: viewSettings };
+const ROUTES = { '': viewDashboard, schedule: viewSchedule, tasks: viewTasks, insta: viewInsta, company: viewCompany, mybook: viewMyBook, thoughts: viewThoughts, books: viewBooks, ideas: viewIdeas, settings: viewSettings };
 const route = () => location.hash.replace(/^#\/?/, '').split(/[?#]/)[0];
 
 function render() {
-  const r = ROUTES[route()] && (!['insta', 'mybook'].includes(route()) || hasFeat(route())) ? route() : '';
-  document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === r));
+  const r = ROUTES[route()] && (route() !== 'insta' || hasFeat('insta')) ? route() : '';
+  document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === r || (r === 'mybook' && a.dataset.nav === 'company')));
   const view = $('#view');
   const boardScroll = [...view.querySelectorAll('[data-board]')].map((b) => [b.dataset.board, b.scrollLeft]);
   const out = !S.status.needsKey && !S.status.user;
@@ -1477,7 +1504,7 @@ function render() {
   view.innerHTML = S.status.needsKey ? viewSetupKey() : out ? viewLogin() : ROUTES[r]();
   if (out && ui.loginUser) setTimeout(() => $('#codeIn')?.focus(), 0);
   for (const [name, left] of boardScroll) { const b = view.querySelector(`[data-board="${name}"]`); if (b) b.scrollLeft = left; }
-  document.title = `${{ '': 'Dashboard', schedule: 'Schedule', tasks: 'To-Do', insta: 'Instagram', mybook: 'My Book', thoughts: 'Thoughts', books: 'Bookshelf', ideas: 'Ideas', settings: 'Settings' }[r]} · Playbook`;
+  document.title = `${{ '': 'Dashboard', schedule: 'Schedule', tasks: 'To-Do', insta: 'Instagram', company: 'Company shelf', mybook: 'My Book', thoughts: 'Thoughts', books: 'Bookshelf', ideas: 'Ideas', settings: 'Settings' }[r]} · Playbook`;
   afterRender();
 }
 

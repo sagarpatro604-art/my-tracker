@@ -19,6 +19,6 @@ export const INSTA = {
 // space is derived from it. Company tasks are shared. "features" turns on pages that only make
 // sense for that person.
 export const USERS = [
-  { id: 'sagar', name: 'Sagar', initials: 'SP', color: '#b9a6f5', features: ['insta', 'mybook'] },
+  { id: 'sagar', name: 'Sagar', initials: 'SP', color: '#b9a6f5', features: ['insta'] },
   { id: 'bhuvan', name: 'Bhuvan', initials: 'BH', color: '#7fd6a8', features: [] },
 ];

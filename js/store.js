@@ -15,7 +15,7 @@ const KEY_LS = 'tracker.vaultKey';
 const USER_LS = 'tracker.user';
 const LOCAL_LS = 'tracker.localBuckets';
 const SINGLE_BUCKET = new Set(['books', 'settings', 'mybook', 'csettings']);
-const COL_SPACE = { reels: 'sys', ctasks: 'co', csettings: 'co' };
+const COL_SPACE = { reels: 'sys', ctasks: 'co', csettings: 'co', mybook: 'co' }; // My Book is company material (both people see it)
 const READ_SPACES = { settings: ['me', 'sys'] }; // instaSync is written into the shared settings by the nightly job
 const ABC = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 
