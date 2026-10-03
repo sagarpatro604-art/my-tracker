@@ -195,7 +195,10 @@ function listenShared() {
   if (Array.isArray(unsub.sys)) unsub.sys.forEach((u) => u());
   const months = [];
   const end = new Date().toISOString().slice(0, 7);
-  for (let d = new Date(`${(INSTA.trackingStart || '2026-08-01').slice(0, 7)}-01T00:00:00Z`); d.toISOString().slice(0, 7) <= end; d.setUTCMonth(d.getUTCMonth() + 1)) months.push(d.toISOString().slice(0, 7));
+  // From a year before tracking began (pinned older posts land in older buckets) up to this month.
+  const from = new Date(`${(INSTA.trackingStart || '2026-08-01').slice(0, 7)}-01T00:00:00Z`);
+  from.setUTCMonth(from.getUTCMonth() - 12);
+  for (let d = from; d.toISOString().slice(0, 7) <= end; d.setUTCMonth(d.getUTCMonth() + 1)) months.push(d.toISOString().slice(0, 7));
   const ids = ['settings_all', ...months.map((m) => `reels_${m}`)];
   let pending = ids.length;
   return new Promise((resolve) => {
