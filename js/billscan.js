@@ -84,6 +84,21 @@ export async function scanBill(file, onProgress = () => {}) {
   return { text, fields: parseBill(text), stored, note };
 }
 
+// Keep a file without reading it (extra invoices on an expense).
+export async function prepareFile(file) {
+  const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+  const isImg = /^image\//.test(file.type) || /\.(jpe?g|png|webp|heic)$/i.test(file.name);
+  if (!isPdf && !isImg) throw new Error(`${file.name}: upload a PDF or a photo (JPG / PNG).`);
+  if (isPdf) {
+    const raw = await readAs(file, 'readAsDataURL');
+    if (raw.length <= MAX_STORE) return { stored: { data: raw, type: 'application/pdf', name: file.name }, note: '' };
+    const c = await renderPage(await pdfPages(file), 1);
+    return { stored: { data: toJpeg(c, c.width, c.height).url, type: 'image/jpeg', name: file.name.replace(/\.pdf$/i, '') + ' (page 1).jpg' }, note: `${file.name} was too big to keep whole, so a picture of page 1 was saved.` };
+  }
+  const img = await loadImg(await readAs(file, 'readAsDataURL'));
+  return { stored: { data: toJpeg(img, img.naturalWidth, img.naturalHeight).url, type: 'image/jpeg', name: file.name.replace(/\.\w+$/, '') + '.jpg' }, note: '' };
+}
+
 /* ---------- turning bill text into fields ---------- */
 const VENDORS = [
   ['OpenAI', /openai|chatgpt/i], ['Anthropic (Claude)', /anthropic|claude\.ai|\bclaude\b/i], ['Google', /google (workspace|one|cloud|play)|g suite|gemini/i], ['YouTube', /youtube/i],

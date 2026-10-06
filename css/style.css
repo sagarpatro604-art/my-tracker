@@ -784,3 +784,8 @@ body.dragging-bill .bud-drop { display: grid; place-items: center; position: fix
   .owes-row h2 { font-size: 20px; }
   .page-head .row { flex-wrap: wrap; }
 }
+.inv-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px; }
+.inv-chip { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 4px 4px 4px 10px; border: 1px solid var(--border); border-radius: 99px; font-size: 13px; overflow: hidden; }
+.inv-chip.new { border-color: var(--accent); background: var(--accent-soft); }
+.inv-chip .icon-btn { width: 24px; height: 24px; }
+.inv-attach { align-self: flex-start; }

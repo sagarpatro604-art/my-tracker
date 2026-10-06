@@ -1,7 +1,7 @@
 // Company budget: month-wise expenses (manual or from an uploaded bill), categories that grow over
 // time, a dashboard, and who-paid / who-owes between the two partners. Lives in the shared company
 // space (collection 'expenses'; settings in csettings 'budget'; bill files as separate documents).
-import { scanBill } from './billscan.js';
+import { scanBill, prepareFile } from './billscan.js';
 
 let X; // helpers from app.js
 export function initBudget(ctx) { X = ctx; }
@@ -31,6 +31,9 @@ const orig = (e) => (e.currency && e.currency !== 'INR' ? `${SYM[e.currency] || 
 const addMonths = (m, n) => { const [y, mo] = m.split('-').map(Number); const d = new Date(y, mo - 1 + n, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; };
 const monthLabel = (m) => { const [y, mo] = m.split('-').map(Number); return `${X.MON_LONG[mo - 1]} ${y}`; };
 const shortMonth = (m) => { const [y, mo] = m.split('-').map(Number); return `${X.MON[mo - 1]} ${String(y).slice(2)}`; };
+// Invoices on an expense (older entries kept one file as fileId / fileName).
+const filesOf = (e) => (e?.files?.length ? e.files : e?.fileId ? [{ id: e.fileId, name: e.fileName || 'bill' }] : []);
+const kb = (n) => (n >= 1024 * 1024 ? (n / 1024 / 1024).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB');
 const payerName = (id) => (id === 'company' ? 'Company account' : X.userOf(id)?.name || id || '—');
 const payerChip = (id) => (id === 'company' ? `<span class="kav" style="background:#cbd5e1" title="Company account">CO</span>` : X.avatar(id));
 
@@ -127,7 +130,7 @@ function viewDash() {
     </section>
   </div>`;
 }
-const rowLite = (e) => `<button class="exp-lite" data-act="budEdit" data-id="${e.id}"><i class="dot" style="background:${catOf(e.category).color}"></i><span class="grow"><b>${X.esc(e.vendor || e.title || 'Expense')}</b><span class="muted small">${X.fmtDate(e.date)} · ${X.esc(e.category || 'Other')}${e.fileId ? ' · 📎 bill' : ''}</span></span>${payerChip(e.paidBy)}<b class="tnum">${money(e.inr)}</b></button>`;
+const rowLite = (e) => `<button class="exp-lite" data-act="budEdit" data-id="${e.id}"><i class="dot" style="background:${catOf(e.category).color}"></i><span class="grow"><b>${X.esc(e.vendor || e.title || 'Expense')}</b><span class="muted small">${X.fmtDate(e.date)} · ${X.esc(e.category || 'Other')}${filesOf(e).length ? ` · 📎 ${filesOf(e).length}` : ''}</span></span>${payerChip(e.paidBy)}<b class="tnum">${money(e.inr)}</b></button>`;
 
 function viewList() {
   const q = budgetUI.q.trim().toLowerCase();
@@ -149,7 +152,7 @@ function viewList() {
         <td><span class="tag" style="background:${catOf(e.category).color}22;color:${catOf(e.category).color}">${X.esc(e.category || 'Other')}</span></td>
         <td class="nowrap">${payerChip(e.paidBy)} ${X.esc(payerName(e.paidBy))}</td>
         <td class="r tnum"><b>${money(e.inr)}</b>${orig(e) ? `<div class="muted small">${orig(e)}</div>` : ''}</td>
-        <td class="nowrap">${e.fileId ? `<button class="icon-btn" data-act="budBill" data-id="${e.id}" aria-label="View bill" title="View bill">📎</button>` : ''}<button class="icon-btn" data-act="budEdit" data-id="${e.id}" aria-label="Edit">${X.ic('pen', 15)}</button></td></tr>`).join('')}
+        <td class="nowrap">${filesOf(e).length ? `<button class="icon-btn" data-act="budBill" data-id="${e.id}" aria-label="View invoice" title="View invoice">📎${filesOf(e).length > 1 ? `<small>${filesOf(e).length}</small>` : ''}</button>` : ''}<button class="icon-btn" data-act="budEdit" data-id="${e.id}" aria-label="Edit">${X.ic('pen', 15)}</button></td></tr>`).join('')}
     </tbody></table></div>` : X.empty('No expenses match.')}
   </section>`;
 }
@@ -189,10 +192,38 @@ function viewCats() {
   </section>`;
 }
 
+function viewInvoices() {
+  const q = budgetUI.q.trim().toLowerCase();
+  const xs = (budgetUI.listAll ? spends() : inMonth(budgetUI.month)).filter((e) => filesOf(e).length);
+  const rows = xs.flatMap((e) => filesOf(e).map((f) => ({ e, f })))
+    .filter(({ e, f }) => (budgetUI.cat === 'all' || (e.category || 'Other') === budgetUI.cat) && (!q || `${e.vendor} ${e.title} ${f.name} ${e.notes}`.toLowerCase().includes(q)))
+    .sort((a, b) => (b.e.date || '').localeCompare(a.e.date || ''));
+  const allFiles = spends().flatMap(filesOf);
+  const used = allFiles.reduce((t, f) => t + (f.size || 150 * 1024), 0);
+  const missing = (budgetUI.listAll ? spends() : inMonth(budgetUI.month)).filter((e) => !filesOf(e).length);
+  return `<div class="toolbar">
+    <label class="search">${X.ic('search', 16)}<input class="input" placeholder="Search invoices" value="${X.esc(budgetUI.q)}" data-input="budQ"></label>
+    <select class="input sm" data-change="budCat" aria-label="Category"><option value="all">All categories</option>${X.opts(cats().map((c) => c.name), budgetUI.cat)}</select>
+    <label class="check-line small"><input type="checkbox" data-change="budAll" ${budgetUI.listAll ? 'checked' : ''}> All months</label>
+    <span class="spacer"></span><span class="muted small">${allFiles.length} invoice${allFiles.length === 1 ? '' : 's'} stored · about ${kb(used)} of the free 1 GB</span>
+  </div>
+  <section class="card"><div class="card-head"><h2>Invoices · ${budgetUI.listAll ? 'all months' : X.esc(monthLabel(budgetUI.month))}</h2><b class="tnum">${rows.length}</b></div>
+    ${rows.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Date</th><th>Expense</th><th>File</th><th class="r">Amount</th><th></th></tr></thead><tbody>
+    ${rows.map(({ e, f }) => `<tr><td class="nowrap">${X.fmtDate(e.date)}</td>
+      <td><b>${X.esc(e.vendor || e.title || 'Expense')}</b><div class="muted small">${X.esc(e.category || 'Other')} · paid by ${X.esc(payerName(e.paidBy))}</div></td>
+      <td><button class="link-btn" data-act="budBill" data-id="${e.id}" data-fid="${f.id}">📄 ${X.esc(f.name)}</button>${f.size ? ` <span class="muted small">${kb(f.size)}</span>` : ''}</td>
+      <td class="r tnum">${money(e.inr)}</td>
+      <td class="nowrap"><button class="icon-btn" data-act="budDl" data-fid="${f.id}" aria-label="Download" title="Download">${X.ic('download', 15)}</button><button class="icon-btn" data-act="budEdit" data-id="${e.id}" aria-label="Edit expense" title="Edit / attach more">${X.ic('pen', 15)}</button></td></tr>`).join('')}
+    </tbody></table></div>` : X.empty('No invoices here yet. Use “Upload bill”, or open any expense and press “Attach invoice”.')}
+  </section>
+  ${missing.length ? `<section class="card"><div class="card-head"><h2>Expenses without an invoice</h2><span class="muted small">${missing.length}</span></div>
+    ${missing.sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 20).map((e) => `<div class="kv"><span><b>${X.esc(e.vendor || e.title || 'Expense')}</b> <span class="muted small">${X.fmtDate(e.date)} · ${money(e.inr)}</span></span><button class="btn sm" data-act="budEdit" data-id="${e.id}">📎 Attach</button></div>`).join('')}</section>` : ''}`;
+}
+
 export function viewBudget() {
   const t = budgetUI.tab;
-  const tabs = [['dash', 'Dashboard'], ['list', 'Expenses'], ['who', 'Who paid'], ['cats', 'Categories']];
-  const body = t === 'list' ? viewList() : t === 'who' ? viewWho() : t === 'cats' ? viewCats() : viewDash();
+  const tabs = [['dash', 'Dashboard'], ['list', 'Expenses'], ['who', 'Who paid'], ['inv', 'Invoices'], ['cats', 'Categories']];
+  const body = t === 'list' ? viewList() : t === 'who' ? viewWho() : t === 'cats' ? viewCats() : t === 'inv' ? viewInvoices() : viewDash();
   return `${X.banner()}
   <header class="page-head"><div><p class="eyebrow"><a href="#/company">Company shelf</a> / shared by Sagar &amp; Bhuvan</p><h1>Budget</h1></div>
     <div class="row">${monthNav()}<label class="btn">${X.ic('upload', 16)} Upload bill<input type="file" accept="application/pdf,image/*" data-change="budUpload" hidden></label><button class="btn primary" data-act="budAdd">${X.ic('plus')} Add expense</button></div></header>
@@ -215,7 +246,6 @@ export function budgetShelfCard() {
 function expenseForm(e) {
   return `
     ${e.scanNote ? `<p class="scan-note">${X.esc(e.scanNote)}</p>` : ''}
-    ${e.fileName ? `<p class="muted small">📎 ${X.esc(e.fileName)}</p>` : ''}
     <div class="form-grid">
       ${X.field('Vendor / paid to', `<input class="input" name="vendor" value="${X.esc(e.vendor || '')}" required placeholder="e.g. OpenAI">`)}
       ${X.field('What for (optional)', `<input class="input" name="title" value="${X.esc(e.title || '')}" placeholder="e.g. ChatGPT Plus">`)}
@@ -229,8 +259,20 @@ function expenseForm(e) {
       ${X.field("Sagar's share %", `<input class="input" type="number" min="0" max="100" name="shareSagar" value="${e.shareSagar ?? 50}">`)}
     </div>
     ${X.field('Notes', `<textarea class="input" name="notes" rows="2">${X.esc(e.notes || '')}</textarea>`)}
-    ${e.id ? `<div class="row"><button type="button" class="btn sm ghost" data-act="budDelete" data-id="${e.id}">${X.ic('trash', 14)} Delete expense</button>${e.fileId ? `<button type="button" class="btn sm ghost" data-act="budBill" data-id="${e.id}">📎 View bill</button>` : ''}</div>` : ''}`;
+    <div class="field"><span>Invoices / bills</span><div class="inv-list" id="invList">${invListHTML()}</div>
+      <label class="btn sm inv-attach">📎 Attach invoice<input type="file" multiple accept="application/pdf,image/*" data-change="budAttach" hidden></label></div>
+    ${e.id ? `<div class="row"><button type="button" class="btn sm ghost" data-act="budDelete" data-id="${e.id}">${X.ic('trash', 14)} Delete expense</button></div>` : ''}`;
 }
+
+// The invoices in the open form: saved ones (minus any removed) plus ones attached but not saved yet.
+function invListHTML() {
+  const d = budgetUI.draft || {};
+  const saved = filesOf(d).filter((f) => !d.removed?.includes(f.id));
+  const rows = saved.map((f) => `<span class="inv-chip">📄 ${X.esc(f.name)}${f.size ? ` <small class="muted">${kb(f.size)}</small>` : ''}<button type="button" class="icon-btn" data-act="budFileRm" data-fid="${f.id}" aria-label="Remove ${X.esc(f.name)}">${X.ic('x', 13)}</button></span>`)
+    .concat((d.pending || []).map((p) => `<span class="inv-chip new">📄 ${X.esc(p.stored.name)} <small class="muted">${kb(p.stored.data.length * 0.75)} · new</small><button type="button" class="icon-btn" data-act="budFileRm" data-pk="${p.key}" aria-label="Remove ${X.esc(p.stored.name)}">${X.ic('x', 13)}</button></span>`));
+  return rows.length ? rows.join('') : '<span class="muted small">No invoice attached. Attach a PDF or photo — it is saved with this expense.</span>';
+}
+const refreshInv = () => { const el = document.querySelector('#invList'); if (el) el.innerHTML = invListHTML(); };
 
 async function fxRate(cur, date) {
   if (!cur || cur === 'INR') return 1;
@@ -245,9 +287,11 @@ async function fxRate(cur, date) {
   return null;
 }
 
-export function openExpense(e = {}) {
+export function openExpense(e0 = {}) {
+  const { pendingFile, ...rest } = e0;
+  const e = { ...rest, pending: rest.pending || (pendingFile ? [{ key: X.S.uid(), stored: pendingFile }] : []), removed: rest.removed || [] };
   budgetUI.draft = e;
-  X.openModal(e.id ? 'Edit expense' : e.fileName ? 'Check the bill details' : 'Add expense', expenseForm(e), async (v) => {
+  X.openModal(e.id ? 'Edit expense' : e.source === 'bill' ? 'Check the bill details' : 'Add expense', expenseForm(e), async (v) => {
     const amount = +v.amount;
     if (!+v.fx && v.currency !== 'INR') X.toast(`Fetching the ${v.currency} rate…`);
     let fx = +v.fx || (v.currency === 'INR' ? 1 : await fxRate(v.currency, v.date));
@@ -256,18 +300,27 @@ export function openExpense(e = {}) {
       ...(e.id ? X.S.get('expenses', e.id) : {}), id: e.id || undefined, vendor: v.vendor.trim(), title: v.title.trim() || null, date: v.date,
       category: v.category, amount, currency: v.currency, fx, inr: Math.round(amount * fx * 100) / 100, recurring: v.recurring || null,
       paidBy: v.paidBy, shareSagar: Math.min(100, Math.max(0, +v.shareSagar || 0)), notes: v.notes.trim() || null,
-      fileId: e.fileId || null, fileName: e.fileName || null, source: e.source || 'manual', addedBy: e.addedBy || X.ME(),
+      fileId: null, fileName: null, source: e.source || 'manual', addedBy: e.addedBy || X.ME(),
     };
     if (!rec.id) delete rec.id;
     // Moved to another month: drop it from the old month's bucket so it is stored where it belongs.
     if (rec._b && rec._b !== X.S.bucketId('expenses', rec)) { X.S.remove('expenses', { ...rec }); delete rec._b; }
-    if (e.pendingFile && !e.fileId) {
-      try { rec.fileId = await X.S.putFile(X.S.uid(), { ...e.pendingFile, expenseVendor: rec.vendor }); rec.fileName = e.pendingFile.name; }
-      catch (err) { X.toast('Saved without the bill file: ' + err.message); }
+    const d = budgetUI.draft || e;
+    const files = filesOf(e).filter((f) => !d.removed.includes(f.id));
+    if (d.pending.length) X.toast(`Saving ${d.pending.length} invoice${d.pending.length > 1 ? 's' : ''}…`);
+    let failed = 0;
+    for (const p of d.pending) {
+      try {
+        const id = await X.S.putFile(X.S.uid(), { ...p.stored, expenseVendor: rec.vendor });
+        files.push({ id, name: p.stored.name, type: p.stored.type, size: Math.round(p.stored.data.length * 0.75), addedAt: X.today() });
+      } catch { failed++; }
     }
+    for (const id of d.removed) await X.S.deleteFile(id).catch(() => {});
+    rec.files = files;
     X.S.put('expenses', rec);
+    if (failed) X.toast(`Saved, but ${failed} invoice${failed > 1 ? 's' : ''} could not be stored — try attaching again.`);
     budgetUI.month = rec.date.slice(0, 7);
-    X.toast(e.id ? 'Expense updated' : `Added ${money(rec.inr)} to ${monthLabel(budgetUI.month)}`);
+    if (!failed) X.toast(`${e.id ? 'Expense updated' : `Added ${money(rec.inr)} to ${monthLabel(budgetUI.month)}`}${files.length ? ` · ${files.length} invoice${files.length > 1 ? 's' : ''} saved` : ''}`);
     X.render();
   }, e.id ? 'Save' : 'Add expense');
 }
@@ -279,21 +332,24 @@ export async function handleBillFile(file) {
     const { fields, stored, note } = await scanBill(file, (msg) => X.toast(msg));
     const found = [fields.vendor && 'vendor', fields.amount != null && 'amount', fields.date && 'date'].filter(Boolean);
     const scanNote = `${found.length ? `Filled in from the bill: ${found.join(', ')}.` : "Couldn't read the details — please type them in."} Check them before saving.${note ? ' ' + note : ''}`;
-    openExpense({ ...fields, category: cats().some((c) => c.name === fields.category) ? fields.category : '', source: 'bill', fileName: stored?.name, pendingFile: stored, scanNote });
+    openExpense({ ...fields, category: cats().some((c) => c.name === fields.category) ? fields.category : '', source: 'bill', pendingFile: stored, scanNote });
   } catch (err) {
     X.toast(err.message);
   }
 }
 
-async function showBill(id) {
+async function showBill(id, fid) {
   const e = X.S.get('expenses', id);
-  if (!e?.fileId) return;
-  X.toast('Opening the bill…');
-  const f = await X.S.getFile(e.fileId).catch(() => null);
-  if (!f) { X.toast('The bill file is missing.'); return; }
+  const list = filesOf(e);
+  if (!list.length) return;
+  const cur = list.find((x) => x.id === fid) || list[0];
+  X.toast('Opening the invoice…');
+  const f = await X.S.getFile(cur.id).catch(() => null);
+  if (!f) { X.toast('The invoice file is missing.'); return; }
   const dlg = document.querySelector('#modal');
   dlg.classList.add('sheet');
   dlg.innerHTML = `<div class="sheet-wrap"><header class="sheet-head"><b>${X.esc(e.vendor || 'Bill')}</b><span class="muted small">${X.fmtDate(e.date)} · ${money(e.inr)}</span><span class="spacer"></span>
+    ${list.length > 1 ? `<span class="chips">${list.map((x, i) => `<button class="chip ${x.id === cur.id ? 'active' : ''}" data-act="budBill" data-id="${e.id}" data-fid="${x.id}" title="${X.esc(x.name)}">${i + 1}</button>`).join('')}</span>` : ''}
     <a class="btn sm" href="${f.data}" download="${X.esc(f.name || 'bill')}">${X.ic('download', 14)} Download</a><button class="icon-btn" data-act="closeModal" aria-label="Close">${X.ic('x')}</button></header>
     <div class="bill-view">${/pdf/.test(f.type) ? `<iframe src="${f.data}" title="Bill"></iframe>` : `<img src="${f.data}" alt="Bill">`}</div></div>`;
   if (!dlg.open) dlg.showModal();
@@ -322,11 +378,23 @@ export const BUDGET_ACTS = {
     const e = X.S.get('expenses', el.dataset.id);
     if (!e || !confirm(`Delete ${e.vendor || 'this expense'} (${money(e.inr)})?`)) return;
     X.closeModal();
-    if (e.fileId) await X.S.deleteFile(e.fileId).catch(() => {});
+    for (const f of filesOf(e)) await X.S.deleteFile(f.id).catch(() => {});
     X.S.remove('expenses', e);
     X.toast('Expense deleted');
   },
-  budBill: (el) => showBill(el.dataset.id),
+  budBill: (el) => showBill(el.dataset.id, el.dataset.fid),
+  budDl: async (el) => {
+    const f = await X.S.getFile(el.dataset.fid).catch(() => null);
+    if (!f) { X.toast('The invoice file is missing.'); return; }
+    X.download(f.name || 'invoice', await (await fetch(f.data)).blob());
+  },
+  budFileRm: (el) => {
+    const d = budgetUI.draft;
+    if (!d) return;
+    if (el.dataset.pk) d.pending = d.pending.filter((p) => p.key !== el.dataset.pk);
+    else if (confirm('Remove this invoice from the expense? It is deleted when you press Save.')) d.removed.push(el.dataset.fid);
+    refreshInv();
+  },
   budCsv: () => csv(),
   budSettle: () => {
     const ob = owesLine(balances());
@@ -357,7 +425,7 @@ export const BUDGET_ACTS = {
     const due = renewals().filter((e) => e.recurring === 'monthly' && e.next.slice(0, 7) <= m && !inMonth(m).some((x) => (x.vendor || '').toLowerCase() === (e.vendor || '').toLowerCase()));
     if (!due.length) { X.toast(`Every monthly subscription is already logged for ${monthLabel(m)}`); return; }
     if (!confirm(`Add ${due.length} monthly subscription(s) to ${monthLabel(m)} with last time's amount?\n\n${due.map((e) => `• ${e.vendor} — ${money(e.inr)} (${payerName(e.paidBy)})`).join('\n')}`)) return;
-    X.S.putMany('expenses', due.map(({ id, _b, createdAt, updatedAt, fileId, fileName, next, ...e }) => ({ ...e, date: `${m}-${e.date.slice(8, 10)}`.replace(/-(3[01]|29)$/, '-28'), source: 'repeat', addedBy: X.ME() })));
+    X.S.putMany('expenses', due.map(({ id, _b, createdAt, updatedAt, fileId, fileName, files, next, ...e }) => ({ ...e, date: `${m}-${e.date.slice(8, 10)}`.replace(/-(3[01]|29)$/, '-28'), source: 'repeat', addedBy: X.ME() })));
     X.toast(`Logged ${due.length} subscription(s)`);
   },
 };
@@ -372,6 +440,32 @@ export const BUDGET_FORMS = {
 };
 export const BUDGET_CHANGES = {
   budUpload: (el) => { handleBillFile(el.files?.[0]); el.value = ''; },
+  // Invoices attached inside the form. If the form is still blank, the first one is read to fill it in.
+  budAttach: async (el) => {
+    const d = budgetUI.draft, f = el.form, picked = [...(el.files || [])];
+    el.value = '';
+    if (!d || !picked.length) return;
+    const blank = f && !f.vendor.value.trim() && !f.amount.value && !filesOf(d).length && !d.pending.length;
+    for (const [i, file] of picked.entries()) {
+      try {
+        X.toast(`Adding ${file.name}…`);
+        if (i === 0 && blank) {
+          const { fields, stored, note } = await scanBill(file, (m) => X.toast(m));
+          d.pending.push({ key: X.S.uid(), stored });
+          const set = (n, v) => { if (v != null && v !== '' && f[n]) f[n].value = v; };
+          set('vendor', fields.vendor); set('amount', fields.amount); set('date', fields.date); set('recurring', fields.recurring);
+          if (cats().some((c) => c.name === fields.category)) set('category', fields.category);
+          if (fields.currency && fields.currency !== f.currency.value) { f.currency.value = fields.currency; f.currency.dispatchEvent(new Event('change', { bubbles: true })); }
+          X.toast(fields.vendor || fields.amount ? 'Filled in from the invoice — check before saving.' : note || 'Invoice attached.');
+        } else {
+          const { stored, note } = await prepareFile(file);
+          d.pending.push({ key: X.S.uid(), stored });
+          X.toast(note || `Attached ${stored.name}`);
+        }
+      } catch (err) { X.toast(err.message); }
+      refreshInv();
+    }
+  },
   budCat: (el) => { budgetUI.cat = el.value; X.render(); },
   budWho: (el) => { budgetUI.who = el.value; X.render(); },
   budAll: (el) => { budgetUI.listAll = el.checked; X.render(); },
