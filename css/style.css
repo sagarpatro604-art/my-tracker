@@ -745,3 +745,42 @@ body.logged-out .shell { grid-template-columns: minmax(0, 1fr); }
   .top-search { flex: 1; }
   .top-search input { padding-left: 36px; }
 }
+
+/* ---------- Budget (company) ---------- */
+.bud-tabs { margin-bottom: 14px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+.bud-tabs .chip { flex: none; }
+.owes .btn { white-space: normal; text-align: left; max-width: 100%; height: auto; }
+.bud-drop { display: none; }
+body.dragging-bill .bud-drop { display: grid; place-items: center; position: fixed; inset: 12px; z-index: 50; border: 2px dashed var(--accent); border-radius: 18px; background: color-mix(in srgb, var(--bg) 82%, transparent); font-weight: 700; color: var(--accent); pointer-events: none; }
+.bud-chart { width: 100%; height: auto; display: block; }
+.bud-chart text { font-size: 10.5px; fill: var(--muted); }
+.bud-chart text.on { fill: var(--accent); font-weight: 800; }
+.bud-chart text.tot { font-size: 9.5px; fill: var(--text); font-weight: 700; }
+.chart-legend i[style] { height: 10px; width: 10px; border-radius: 3px; }
+.hbar-track { position: relative; }
+.hbar-track .limit { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--text); opacity: .55; z-index: 1; }
+.hbar-label .dot, .exp-lite .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; flex: none; }
+.exp-lite { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 4px; border: 0; border-bottom: 1px solid var(--border); background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.exp-lite:last-child { border-bottom: 0; }
+.exp-lite:hover { background: var(--accent-soft); }
+.exp-lite .grow { display: flex; flex-direction: column; min-width: 0; }
+.exp-lite .grow b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.owes { margin-bottom: 16px; }
+.owes-row { display: flex; align-items: center; gap: 18px; margin-bottom: 12px; }
+.owes-row h2 { margin: 2px 0 4px; font-size: 24px; }
+.owes.square h2 { color: var(--good, inherit); }
+.cat-rows { display: grid; gap: 10px; margin-bottom: 14px; }
+.cat-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.cat-row input[type=color] { width: 34px; height: 34px; border: 1px solid var(--border); border-radius: 9px; padding: 2px; background: none; cursor: pointer; }
+.cat-row > .input { flex: 1 1 180px; max-width: 260px; }
+.cat-row .lim { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+.cat-row .lim .input { width: 110px; }
+.scan-note { background: var(--accent-soft); border-radius: 10px; padding: 9px 12px; font-size: 13.5px; margin: 0 0 12px; }
+.bill-view { flex: 1; min-height: 0; overflow: auto; display: grid; place-items: start center; padding: 14px; }
+.bill-view img { max-width: 100%; border-radius: 8px; background: #fff; }
+.bill-view iframe { width: 100%; height: 100%; min-height: 70vh; border: 0; background: #fff; border-radius: 8px; }
+@media (max-width: 640px) {
+  .owes-row .kav.xl { display: none; }
+  .owes-row h2 { font-size: 20px; }
+  .page-head .row { flex-wrap: wrap; }
+}

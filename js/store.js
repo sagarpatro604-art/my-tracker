@@ -15,7 +15,7 @@ const KEY_LS = 'tracker.vaultKey';
 const USER_LS = 'tracker.user';
 const LOCAL_LS = 'tracker.localBuckets';
 const SINGLE_BUCKET = new Set(['books', 'settings', 'mybook', 'csettings']);
-const COL_SPACE = { reels: 'sys', ctasks: 'co', csettings: 'co', mybook: 'co' }; // My Book is company material (both people see it)
+const COL_SPACE = { reels: 'sys', ctasks: 'co', csettings: 'co', mybook: 'co', expenses: 'co' }; // My Book is company material (both people see it)
 const READ_SPACES = { settings: ['me', 'sys'] }; // instaSync is written into the shared settings by the nightly job
 const ABC = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 
@@ -33,7 +33,7 @@ const spaceOf = (col) => COL_SPACE[col] || 'me';
 
 export function bucketId(col, item) {
   if (SINGLE_BUCKET.has(col)) return `${col}_all`;
-  const d = (col === 'reels' ? item.date : item.createdAt) || nowISO();
+  const d = (col === 'reels' || col === 'expenses' ? item.date : item.createdAt) || nowISO();
   return `${col}_${d.slice(0, 7)}`;
 }
 
@@ -164,11 +164,33 @@ export async function deriveSpace(userId, code) {
   return Array.from(new Uint8Array(bits), (b) => ABC[b % 62]).join('');
 }
 
+/* ---------- bill files (company space, one document each, fetched only when opened) ---------- */
+const FILE_PREFIX = 'zfile_';
+const localFiles = () => { try { return JSON.parse(localStorage.getItem('tracker.files:company') || '{}'); } catch { return {}; } };
+export async function putFile(id, file) {
+  if (!canWrite('co')) throw new Error('Not signed in');
+  const rec = clean({ ...file, id, createdAt: nowISO() });
+  if (fb) await fb.fs.setDoc(docRef('co', FILE_PREFIX + id), { file: rec });
+  else { const all = localFiles(); all[id] = rec; localStorage.setItem('tracker.files:company', JSON.stringify(all)); }
+  return id;
+}
+export async function getFile(id) {
+  if (!fb) return localFiles()[id] || null;
+  const d = await fb.fs.getDoc(docRef('co', FILE_PREFIX + id));
+  return d.exists() ? d.data().file : null;
+}
+export async function deleteFile(id) {
+  if (!fb) { const all = localFiles(); delete all[id]; localStorage.setItem('tracker.files:company', JSON.stringify(all)); return; }
+  await fb.fs.deleteDoc(docRef('co', FILE_PREFIX + id));
+}
+
 function listen(sp, path) {
   return new Promise((resolve) => {
     unsub[sp]?.();
+    const coll = fb.fs.collection(fb.db, ...path);
     unsub[sp] = fb.fs.onSnapshot(
-      fb.fs.collection(fb.db, ...path),
+      // Bill files live beside the buckets as zfile_* documents; keep them out of the live sync.
+      sp === 'co' ? fb.fs.query(coll, fb.fs.where(fb.fs.documentId(), '<', FILE_PREFIX)) : coll,
       { includeMetadataChanges: true },
       (snap) => {
         const next = {};
