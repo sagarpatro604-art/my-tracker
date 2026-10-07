@@ -15,7 +15,7 @@ const KEY_LS = 'tracker.vaultKey';
 const USER_LS = 'tracker.user';
 const LOCAL_LS = 'tracker.localBuckets';
 const SINGLE_BUCKET = new Set(['books', 'settings', 'mybook', 'csettings']);
-const COL_SPACE = { reels: 'sys', ctasks: 'co', csettings: 'co', mybook: 'co', expenses: 'co' }; // My Book is company material (both people see it)
+const COL_SPACE = { reels: 'sys', ctasks: 'co', csettings: 'co', mybook: 'co', expenses: 'co', docs: 'co' }; // My Book is company material (both people see it)
 const READ_SPACES = { settings: ['me', 'sys'] }; // instaSync is written into the shared settings by the nightly job
 const ABC = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 
@@ -164,24 +164,51 @@ export async function deriveSpace(userId, code) {
   return Array.from(new Uint8Array(bits), (b) => ABC[b % 62]).join('');
 }
 
-/* ---------- bill files (company space, one document each, fetched only when opened) ---------- */
+/* ---------- files: bills and shared documents (company space, fetched only when opened) ----------
+   A file is a data URL. Firestore documents stop at 1 MB, so a big file is cut into pieces:
+   zfile_<id> holds the details and piece 0, zfile_<id>~1, ~2 ... hold the rest. */
 const FILE_PREFIX = 'zfile_';
+const PIECE = 900000; // characters of the data URL per document
 const localFiles = () => { try { return JSON.parse(localStorage.getItem('tracker.files:company') || '{}'); } catch { return {}; } };
-export async function putFile(id, file) {
+export async function putFile(id, file, onProgress) {
   if (!canWrite('co')) throw new Error('Not signed in');
-  const rec = clean({ ...file, id, createdAt: nowISO() });
-  if (fb) await fb.fs.setDoc(docRef('co', FILE_PREFIX + id), { file: rec });
-  else { const all = localFiles(); all[id] = rec; localStorage.setItem('tracker.files:company', JSON.stringify(all)); }
+  const data = String(file.data || '');
+  const parts = Math.max(1, Math.ceil(data.length / PIECE));
+  const rec = clean({ ...file, data: data.slice(0, PIECE), parts, id, createdAt: nowISO() });
+  if (!fb) {
+    const all = localFiles(); all[id] = { ...rec, data, parts: 1 };
+    try { localStorage.setItem('tracker.files:company', JSON.stringify(all)); } catch { throw new Error('This device has no room left for the file.'); }
+    return id;
+  }
+  // Pieces first and the details document last, so a half-finished upload is never shown as a file.
+  for (let i = 1; i < parts; i++) {
+    await fb.fs.setDoc(docRef('co', `${FILE_PREFIX}${id}~${i}`), { part: data.slice(i * PIECE, (i + 1) * PIECE) });
+    onProgress?.(i / parts);
+  }
+  await fb.fs.setDoc(docRef('co', FILE_PREFIX + id), { file: rec });
+  onProgress?.(1);
   return id;
 }
-export async function getFile(id) {
+export async function getFile(id, onProgress) {
   if (!fb) return localFiles()[id] || null;
   const d = await fb.fs.getDoc(docRef('co', FILE_PREFIX + id));
-  return d.exists() ? d.data().file : null;
+  if (!d.exists()) return null;
+  const rec = d.data().file;
+  const chunks = [rec.data];
+  for (let i = 1; i < (rec.parts || 1); i++) {
+    const p = await fb.fs.getDoc(docRef('co', `${FILE_PREFIX}${id}~${i}`));
+    if (!p.exists()) throw new Error('Part of this file is missing.');
+    chunks.push(p.data().part);
+    onProgress?.(i / rec.parts);
+  }
+  return { ...rec, data: chunks.join('') };
 }
 export async function deleteFile(id) {
   if (!fb) { const all = localFiles(); delete all[id]; localStorage.setItem('tracker.files:company', JSON.stringify(all)); return; }
+  const d = await fb.fs.getDoc(docRef('co', FILE_PREFIX + id));
+  const parts = d.exists() ? d.data().file?.parts || 1 : 1;
   await fb.fs.deleteDoc(docRef('co', FILE_PREFIX + id));
+  for (let i = 1; i < parts; i++) await fb.fs.deleteDoc(docRef('co', `${FILE_PREFIX}${id}~${i}`));
 }
 
 function listen(sp, path) {
