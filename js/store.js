@@ -259,10 +259,24 @@ function listenShared() {
   });
 }
 
+/* ---------- membership: what lets this device into a space ----------
+   Each device signs in to Firebase anonymously and records which person's space it unlocked
+   (vaults/{key}/members/{uid} = { space }). The rules accept only the two real space ids there, and
+   open the company space only to a device with such a record, so the link alone is not enough. */
+async function ensureMember(user, space) {
+  const { auth, mod } = fb.auth;
+  await auth.authStateReady();
+  if (!auth.currentUser) await mod.signInAnonymously(auth);
+  const ref = fb.fs.doc(fb.db, 'vaults', status.key, 'members', auth.currentUser.uid);
+  await fb.fs.setDoc(ref, { space, user, at: nowISO() });
+}
+
 async function attachUser(user, space) {
   status.user = user;
   status.space = space;
   if (fb) {
+    try { await ensureMember(user, space); }
+    catch (e) { console.warn('membership', e); if (!String(e?.code || '').startsWith('auth/')) status.error = 'Could not confirm this device: ' + (e?.code || e?.message); }
     await Promise.all([
       listen('me', ['vaults', status.key, 'spaces', space, 'buckets']),
       listen('co', ['vaults', status.key, 'spaces', 'company', 'buckets']),
@@ -280,6 +294,12 @@ export async function login(user, code) {
   const space = await deriveSpace(user, code);
   if (fb) {
     try {
+      await ensureMember(user, space);
+    } catch (e) {
+      if (e?.code === 'permission-denied') throw new Error('wrong-code');
+      if (!String(e?.code || '').startsWith('auth/')) throw new Error(e?.code === 'unavailable' ? 'You seem to be offline. Connect to the internet and try again.' : (e?.message || String(e)));
+    }
+    try {
       await fb.fs.getDocFromServer(fb.fs.doc(fb.db, 'vaults', status.key, 'spaces', space, 'buckets', 'settings_all'));
     } catch (e) {
       if (e?.code === 'permission-denied') throw new Error('wrong-code');
@@ -292,6 +312,9 @@ export async function login(user, code) {
 
 export function logout() {
   try { localStorage.removeItem(USER_LS); } catch {}
+  // This device gives its access back.
+  const u = fb?.auth?.auth.currentUser;
+  if (u) fb.fs.deleteDoc(fb.fs.doc(fb.db, 'vaults', status.key, 'members', u.uid)).catch(() => {}).finally(() => fb.auth.mod.signOut(fb.auth.auth).catch(() => {}));
   unsub.me?.(); unsub.co?.();
   unsub.me = unsub.co = null;
   data.me = {};
@@ -330,7 +353,7 @@ export async function connect(key) {
   status.key = key;
   status.needsKey = false;
   const base = `https://www.gstatic.com/firebasejs/${FB_VER}/`;
-  const [{ initializeApp }, fs] = await Promise.all([import(base + 'firebase-app.js'), import(base + 'firebase-firestore.js')]);
+  const [{ initializeApp }, fs, authMod] = await Promise.all([import(base + 'firebase-app.js'), import(base + 'firebase-firestore.js'), import(base + 'firebase-auth.js')]);
   const app = initializeApp(firebaseConfig);
   let db;
   try {
@@ -338,7 +361,7 @@ export async function connect(key) {
   } catch {
     db = fs.getFirestore(app);
   }
-  fb = { fs, db, key };
+  fb = { fs, db, key, auth: { auth: authMod.getAuth(app), mod: authMod } };
   await listenShared();
   // A new month means a new reels bucket to follow.
   let month = new Date().toISOString().slice(0, 7);
