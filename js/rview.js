@@ -7,7 +7,7 @@ import {
   addReading, flushStats, runOcr, notesMarkdown, notesText, printNotes, annotatedPdf, takeJump,
 } from './rlib.js';
 import { aiPanelHTML, AI_ACTS, aiWire } from './rai.js';
-import { paintInk, inkBarHTML, wireInk, inkUndo, INK_SET, setFinger, inkPagesOf } from './rink.js';
+import { paintInk, inkBarHTML, wireInk, inkUndo, INK_SET, setFinger, inkPagesOf, inkPrefs, setToolClass } from './rink.js';
 
 let st = null; // the open reader
 export const readerState = () => st;
@@ -105,17 +105,29 @@ function shell() {
     <button class="rd-pageno" data-ract="jump" title="Go to page"><span id="rdPage">1</span> / ${d.pages}</button>
     <span class="spacer"></span>
     ${d.kind === 'pdf' ? `<div class="seg" role="group" aria-label="View"><button data-ract="mode" data-v="pdf" class="${st.mode === 'pdf' ? 'on' : ''}" title="Original pages">Page</button><button data-ract="mode" data-v="flow" class="${st.mode === 'flow' ? 'on' : ''}" title="Reflowed text">Text</button></div>` : ''}
-    <button class="icon-btn" data-ract="panel" data-v="toc" title="Contents" aria-label="Contents">${ic('todo', 18)}</button>
-    <button class="icon-btn" data-ract="panel" data-v="search" title="Search (Ctrl+F)" aria-label="Search">${ic('search', 18)}</button>
-    <button class="icon-btn" data-ract="panel" data-v="notes" title="Highlights & notes" aria-label="Highlights and notes">${ic('pen', 18)}</button>
-    <button class="icon-btn" data-ract="bookmark" title="Bookmark this page (B)" aria-label="Bookmark">${ic('flag', 18)}</button>
-    <button class="icon-btn rd-pin ${st.pinned ? 'on' : ''}" data-ract="pin" title="Keep my place here" aria-label="Keep my place here">${ic('pin', 18)}</button>
-    <button class="icon-btn" data-ract="panel" data-v="ai" title="Ask AI about this document" aria-label="AI">✨</button>
+    <button class="icon-btn rd-x" data-ract="panel" data-v="toc" title="Contents" aria-label="Contents">${ic('todo', 18)}</button>
+    <button class="icon-btn rd-x" data-ract="panel" data-v="search" title="Search (Ctrl+F)" aria-label="Search">${ic('search', 18)}</button>
+    <button class="icon-btn rd-x" data-ract="panel" data-v="notes" title="Highlights & notes" aria-label="Highlights and notes">${ic('pen', 18)}</button>
+    <button class="icon-btn rd-x" data-ract="bookmark" title="Bookmark this page (B)" aria-label="Bookmark">${ic('flag', 18)}</button>
+    <button class="icon-btn rd-x rd-pin ${st.pinned ? 'on' : ''}" data-ract="pin" title="Keep my place here" aria-label="Keep my place here">${ic('pin', 18)}</button>
+    <button class="icon-btn rd-x" data-ract="panel" data-v="ai" title="Ask AI about this document" aria-label="AI">✨</button>
+    <span class="rd-zoom rd-x" title="Zoom (Ctrl + scroll, pinch with two fingers, or double-tap)"><button data-ract="zoom" data-v="-1" aria-label="Zoom out">−</button><button data-ract="zoom" data-v="0" class="rdZoomLbl" title="Reset">100%</button><button data-ract="zoom" data-v="1" aria-label="Zoom in">+</button></span>
     <button class="icon-btn" data-ract="panel" data-v="look" title="Reading settings" aria-label="Reading settings"><b style="font-family:Georgia,serif">Aa</b></button>
-    <span class="rd-zoom" title="Zoom (Ctrl + scroll, or pinch with two fingers)"><button data-ract="zoom" data-v="-1" aria-label="Zoom out">−</button><button data-ract="zoom" data-v="0" class="rdZoomLbl" title="Reset">100%</button><button data-ract="zoom" data-v="1" aria-label="Zoom in">+</button></span>
-    ${d.kind === 'pdf' ? `<button class="icon-btn rd-draw" data-ract="draw" title="Write / draw with a stylus (D)" aria-label="Draw">✏️</button>` : ''}
-    <button class="icon-btn" data-ract="full" title="Full screen (F)" aria-label="Full screen">${ic('expand', 18)}</button>
+    ${d.kind === 'pdf' ? `<button class="rd-draw" data-ract="draw" title="Mark: pen, marker, highlight text, eraser (D)"><span>✏️</span><b>Mark</b></button>` : ''}
+    <button class="icon-btn rd-x" data-ract="full" title="Full screen (F)" aria-label="Full screen">${ic('expand', 18)}</button>
+    <button class="icon-btn rd-more-btn" data-ract="more" aria-label="More">⋯</button>
   </header>
+  <div class="rd-more" id="rdMore" hidden>
+    <b class="rd-more-title">${esc(d.title)}</b>
+    <button data-ract="panel" data-v="toc">${ic('todo', 16)} Contents</button>
+    <button data-ract="panel" data-v="search">${ic('search', 16)} Search in document</button>
+    <button data-ract="panel" data-v="notes">${ic('pen', 16)} Highlights &amp; notes</button>
+    <button data-ract="bookmark">${ic('flag', 16)} Bookmark this page</button>
+    <button data-ract="pin">${ic('pin', 16)} <span class="rd-pin-lbl">${st.pinned ? 'Stop keeping my place' : 'Keep my place here'}</span></button>
+    <button data-ract="panel" data-v="ai">✨ Ask AI</button>
+    <div class="rd-more-zoom">Zoom <span class="rd-zoom"><button data-ract="zoom" data-v="-1" aria-label="Zoom out">−</button><button data-ract="zoom" data-v="0" class="rdZoomLbl">100%</button><button data-ract="zoom" data-v="1" aria-label="Zoom in">+</button></span></div>
+    <button data-ract="full">${ic('expand', 16)} Full screen</button>
+  </div>
   <div class="rd-status" id="rdStatus" hidden></div>
   <div class="rd-remote" id="rdRemote" hidden></div>
   ${d.ocr && d.ocr.done < d.ocr.need.length ? `<div class="rd-ocr" id="rdOcr">${d.ocr.need.length - d.ocr.done} scanned page${d.ocr.need.length - d.ocr.done > 1 ? 's have' : ' has'} no text yet. <button class="btn sm" data-ract="ocr">Read them now</button></div>` : ''}
@@ -136,6 +148,7 @@ function shell() {
   st.scroll = $r('#rdScroll');
   st.scroll.addEventListener('scroll', onScroll, { passive: true });
   st.root.classList.toggle('m-pdf', st.mode === 'pdf');
+  st.markText = markText;
   wireZoom();
   wireInk(st);
 }
@@ -400,17 +413,21 @@ function onSelection() {
   bar.style.left = Math.max(8, Math.min(box.width - bw - 8, r.left - box.left + r.width / 2 - bw / 2)) + 'px';
   bar.style.top = (r.top - box.top > 64 ? r.top - box.top - 48 : r.bottom - box.top + 10) + 'px';
 }
-function createFromSelection(kind, color = 'yellow', style = 'highlight') {
-  if (!st.sel) return null;
-  const { range, page, pageEl } = st.sel;
+function makeHighlight(range, page, pageEl, kind, color, style) {
   const anchorEl = st.mode === 'pdf' ? pageEl.querySelector('.textLayer') || pageEl : pageEl;
   const a = selectionAnchor(anchorEl, range);
   if (!a.quote) return null;
   const rects = st.mode === 'pdf' ? rectsOf(range, pageEl) : null;
-  const note = R.S.put('rnotes', {
+  return R.S.put('rnotes', {
     docId: st.doc.id, docTitle: st.doc.title, kind, color, style, page, quote: a.quote.slice(0, 2000), prefix: a.prefix, suffix: a.suffix, approx: a.approx, mode: st.mode,
     rects, note: '', tags: [], at: R.S.nowISO(),
   });
+}
+function createFromSelection(kind, color = 'yellow', style = 'highlight') {
+  if (!st.sel) return null;
+  const { range, page, pageEl } = st.sel;
+  const note = makeHighlight(range, page, pageEl, kind, color, style);
+  if (!note) return null;
   getSelection().removeAllRanges();
   $r('#rdSel').hidden = true;
   st.sel = null;
@@ -688,18 +705,34 @@ function showNotePop(nid, x, y) {
 const ZKEY = 'pb.rzoom';
 const devZoom = () => { try { return Math.min(4, Math.max(0.5, +localStorage.getItem(ZKEY) || 1)); } catch { return 1; } };
 function zoomLabel() { st.root.querySelectorAll('.rdZoomLbl').forEach((b) => { b.textContent = st.mode === 'pdf' ? Math.round((st.zoom || 1) * 100) + '%' : readerPrefs().size + 'px'; }); }
-function setZoom(z, cx, cy) {
+// The spot of the page under a screen point, as page number + fraction across / down that page.
+function anchorAt(cx, cy) {
+  let best = null, bd = Infinity;
+  for (const el of st.root.querySelectorAll('.rpage')) {
+    const r = el.getBoundingClientRect();
+    const d = cy < r.top ? r.top - cy : cy > r.bottom ? cy - r.bottom : 0;
+    if (d < bd) { bd = d; best = { el, r }; }
+    if (d === 0) break;
+  }
+  return best && { page: +best.el.dataset.page, fx: (cx - best.r.left) / best.r.width, fy: (cy - best.r.top) / best.r.height };
+}
+// Zoom so that the page spot `anchor` (default: what is under the point) ends up exactly under (cx, cy).
+// Page gaps and margins don't scale, so this works from the page itself, not from scroll offsets.
+function setZoom(z, cx, cy, anchor) {
   if (st.mode !== 'pdf') return;
   z = Math.round(Math.min(4, Math.max(0.5, z)) * 100) / 100;
   if (Math.abs(z - st.zoom) < 0.005) { zoomLabel(); return; }
   const sc = st.scroll, box = sc.getBoundingClientRect();
-  const ox = (cx ?? box.left + sc.clientWidth / 2) - box.left, oy = (cy ?? box.top + sc.clientHeight / 2) - box.top;
-  const px = sc.scrollLeft + ox, py = sc.scrollTop + oy, ratio = z / st.zoom;
+  cx ??= box.left + sc.clientWidth / 2; cy ??= box.top + sc.clientHeight / 2;
+  anchor ||= anchorAt(cx, cy);
   st.zoom = z;
   try { localStorage.setItem(ZKEY, String(z)); } catch {}
   layoutPdf();
-  sc.scrollLeft = px * ratio - ox;
-  sc.scrollTop = py * ratio - oy;
+  const el = anchor && st.root.querySelector(`.rpage[data-page="${anchor.page}"]`);
+  if (el) {
+    sc.scrollLeft = el.offsetLeft + anchor.fx * el.offsetWidth - (cx - box.left);
+    sc.scrollTop = el.offsetTop + anchor.fy * el.offsetHeight - (cy - box.top);
+  }
   zoomLabel();
   clearTimeout(st.zoomT);
   st.zoomT = setTimeout(() => { if (st) { ensureNear(); trackPosition(); } }, 120);
@@ -729,12 +762,13 @@ function zoomStep(dir) {
   if (st.mode === 'pdf') setZoom(dir === 0 ? 1 : st.zoom * (dir > 0 ? 1.2 : 1 / 1.2));
   else textZoom(dir === 0 ? 19 / readerPrefs().size : dir > 0 ? 1.1 : 1 / 1.1);
 }
-function previewScale(f, cx, cy) {
+// Live preview while pinching: scale around where the fingers started and follow them if they slide.
+function previewScale(f, sx, sy, cx = sx, cy = sy) {
   const wrap = $r('.rd-pages');
   if (!wrap) return;
   const box = st.scroll.getBoundingClientRect();
-  wrap.style.transformOrigin = `${cx - box.left + st.scroll.scrollLeft - wrap.offsetLeft}px ${cy - box.top + st.scroll.scrollTop - wrap.offsetTop}px`;
-  wrap.style.transform = `scale(${f})`;
+  wrap.style.transformOrigin = `${sx - box.left + st.scroll.scrollLeft - wrap.offsetLeft}px ${sy - box.top + st.scroll.scrollTop - wrap.offsetTop}px`;
+  wrap.style.transform = `translate(${cx - sx}px, ${cy - sy}px) scale(${f})`;
 }
 function clearPreview() { const wrap = $r('.rd-pages'); if (wrap) { wrap.style.transform = ''; wrap.style.transformOrigin = ''; } }
 function wireZoom() {
@@ -746,9 +780,10 @@ function wireZoom() {
     const x = e.clientX, y = e.clientY;
     clearTimeout(st.wzT);
     if (st.mode === 'pdf') {
+      if (!st.wz) st.wzA = anchorAt(x, y);
       st.wz = Math.min(4, Math.max(0.5, (st.wz || st.zoom) * Math.exp(-e.deltaY * 0.0025)));
       previewScale(st.wz / st.zoom, x, y);
-      st.wzT = setTimeout(() => { const z = st.wz; st.wz = null; clearPreview(); setZoom(z, x, y); }, 140);
+      st.wzT = setTimeout(() => { const z = st.wz, a = st.wzA; st.wz = null; clearPreview(); setZoom(z, x, y, a); }, 140);
     } else {
       st.wf = (st.wf || 1) * Math.exp(-e.deltaY * 0.004);
       st.wzT = setTimeout(() => { textZoom(st.wf); st.wf = 1; }, 160);
@@ -759,25 +794,46 @@ function wireZoom() {
   sc.addEventListener('touchstart', (e) => {
     if (e.touches.length !== 2) return;
     const [a, b] = e.touches;
-    pinch = { d: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) || 1, x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2, f: 1 };
+    const x = (a.clientX + b.clientX) / 2, y = (a.clientY + b.clientY) / 2;
+    pinch = { d: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) || 1, x, y, cx: x, cy: y, f: 1, anchor: st.mode === 'pdf' ? anchorAt(x, y) : null };
     st.pinching = true;
   }, { passive: true });
   sc.addEventListener('touchmove', (e) => {
     if (!pinch || e.touches.length !== 2) return;
     e.preventDefault();
     const [a, b] = e.touches;
-    pinch.f = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) / pinch.d;
-    if (st.mode === 'pdf') previewScale(Math.min(4 / st.zoom, Math.max(0.5 / st.zoom, pinch.f)), pinch.x, pinch.y);
+    pinch.cx = (a.clientX + b.clientX) / 2; pinch.cy = (a.clientY + b.clientY) / 2;
+    pinch.f = Math.min(4 / (st.zoom || 1), Math.max(0.5 / (st.zoom || 1), Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) / pinch.d));
+    if (st.mode === 'pdf') previewScale(pinch.f, pinch.x, pinch.y, pinch.cx, pinch.cy);
   }, { passive: false });
   const endPinch = (e) => {
     if (!pinch || e.touches.length >= 2) return;
     const p = pinch;
     pinch = null;
     st.pinching = false;
+    st.noTapUntil = Date.now() + 400;
     clearPreview();
     if (Math.abs(p.f - 1) < 0.04) return;
-    if (st.mode === 'pdf') setZoom(st.zoom * p.f, p.x, p.y); else textZoom(p.f);
+    // The spot that was under the fingers when the pinch began lands under where the fingers are now.
+    if (st.mode === 'pdf') setZoom(st.zoom * p.f, p.cx, p.cy, p.anchor); else textZoom(p.f);
   };
+  // Safari's own pinch gesture would zoom the whole app: keep it for the PDF only.
+  sc.addEventListener('gesturestart', (e) => e.preventDefault());
+  // Double-tap: zoom in on that spot; double-tap again to fit the page to the screen.
+  let tap = null, lastTap = null;
+  sc.addEventListener('pointerdown', (e) => { if (e.pointerType === 'touch' && e.isPrimary) tap = { x: e.clientX, y: e.clientY, t: Date.now() }; });
+  sc.addEventListener('pointerup', (e) => {
+    if (e.pointerType !== 'touch' || !tap || st.mode !== 'pdf' || st.pinching || Date.now() < (st.noTapUntil || 0)) { tap = null; return; }
+    const quick = Date.now() - tap.t < 280 && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) < 12;
+    tap = null;
+    if (!quick || !e.target.closest('.rpage')) { lastTap = null; return; }
+    if (lastTap && Date.now() - lastTap.t < 320 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 40) {
+      lastTap = null;
+      setZoom(st.zoom < 1.4 ? 2.2 : 1, e.clientX, e.clientY);
+      return;
+    }
+    lastTap = { x: e.clientX, y: e.clientY, t: Date.now() };
+  });
   sc.addEventListener('touchend', endPinch);
   sc.addEventListener('touchcancel', endPinch);
 }
@@ -791,11 +847,77 @@ async function toggleDraw(on = !st.drawing) {
   $r('.rd-draw')?.classList.toggle('on', on);
   const bar = $r('#rdInk');
   if (bar) bar.hidden = !on;
+  setToolClass(st);
   getSelection().removeAllRanges();
   $r('#rdSel').hidden = true;
   let seen = true;
   try { seen = !!localStorage.getItem('pb.inkHelp'); if (!seen) localStorage.setItem('pb.inkHelp', '1'); } catch {}
-  if (on && !seen) R.toast('Write with your stylus. A finger scrolls; two fingers zoom.');
+  if (on && !seen) R.toast('Mark with your stylus. One finger scrolls, two fingers zoom.');
+}
+
+/* ---------- "Highlight text" in Mark mode: drag the stylus across words ---------- */
+function caretAt(x, y, tl) {
+  let node = null, offset = 0;
+  const r = document.caretRangeFromPoint?.(x, y);
+  if (r) { node = r.startContainer; offset = r.startOffset; }
+  else if (document.caretPositionFromPoint) { const p = document.caretPositionFromPoint(x, y); if (p) { node = p.offsetNode; offset = p.offset; } }
+  if (node && tl.contains(node) && node.nodeType === 3) return { node, offset };
+  // Between lines or in a margin: the nearest word on the page.
+  let best = null, bd = Infinity;
+  for (const sp of tl.querySelectorAll('span')) {
+    const t = sp.firstChild;
+    if (!t || t.nodeType !== 3 || !t.nodeValue.trim()) continue;
+    const b = sp.getBoundingClientRect();
+    const d = Math.hypot(Math.max(b.left - x, 0, x - b.right), Math.max(b.top - y, 0, y - b.bottom));
+    if (d < bd) { bd = d; best = { node: t, offset: x < b.left + b.width / 2 ? 0 : t.nodeValue.length }; }
+  }
+  return best;
+}
+function wordRange(a, b) {
+  const r = document.createRange();
+  r.setStart(a.node, a.offset); r.setEnd(a.node, a.offset);
+  const r2 = document.createRange(); r2.setStart(b.node, b.offset);
+  let [s, e] = r.compareBoundaryPoints(Range.START_TO_START, r2) <= 0 ? [a, b] : [b, a];
+  let so = s.offset, eo = e.offset;
+  while (so > 0 && /\S/.test(s.node.nodeValue[so - 1])) so--;
+  while (eo < e.node.nodeValue.length && /\S/.test(e.node.nodeValue[eo])) eo++;
+  const out = document.createRange();
+  out.setStart(s.node, so); out.setEnd(e.node, eo);
+  return out;
+}
+function markTextPreview(pg, range, color) {
+  const layer = pg.querySelector('.hl-layer');
+  if (!layer) return;
+  layer.querySelectorAll('.mk-preview').forEach((x) => x.remove());
+  if (!range) return;
+  for (const [x, y, w, h] of rectsOf(range, pg)) {
+    const d = document.createElement('div');
+    d.className = `hlr mk-preview hl-${color}`;
+    d.style.cssText = `left:${x * pg.clientWidth}px;top:${y * pg.clientHeight}px;width:${w * pg.clientWidth}px;height:${h * pg.clientHeight}px`;
+    layer.appendChild(d);
+  }
+}
+function markText(phase, e, pg) {
+  const tl = pg.querySelector('.textLayer');
+  const color = inkPrefs().hcolor || 'yellow';
+  if (phase === 'start') {
+    if (!tl) { R.toast('This page is still loading — try again in a moment'); return false; }
+    const at = caretAt(e.clientX, e.clientY, tl);
+    if (!at) { R.toast('No text here to highlight. Use Pen or Marker on pictures and scans.'); return false; }
+    st.mt = { start: at, range: null };
+    return true;
+  }
+  if (!st.mt) return null;
+  const at = caretAt(e.clientX, e.clientY, tl);
+  if (at) st.mt.range = wordRange(st.mt.start, at);
+  if (phase === 'move') { markTextPreview(pg, st.mt.range, color); return null; }
+  const range = st.mt.range;
+  st.mt = null;
+  markTextPreview(pg, null);
+  if (!range || !range.toString().trim()) return null;
+  const note = makeHighlight(range, +pg.dataset.page, pg, 'highlight', color, 'highlight');
+  if (note) { repaintPage(note.page); if (st.panel === 'notes') renderPanel(); }
+  return note;
 }
 
 /* ---------- actions ---------- */
@@ -830,6 +952,7 @@ function togglePin() {
   R.S.put('rprog', { id: st.doc.id, page: pos.page, frac: pos.frac, anchor: pos.anchor || null, mode: st.mode, pinned: st.pinned, pct: st.pct || 0, at, dev: deviceId });
   st.saved = { page: pos.page, frac: pos.frac, at, mode: st.mode };
   $r('.rd-pin').classList.toggle('on', st.pinned);
+  const pl = $r('.rd-pin-lbl'); if (pl) pl.textContent = st.pinned ? 'Stop keeping my place' : 'Keep my place here';
   R.toast(st.pinned ? `Your place is kept at page ${pos.page} on every device until you unpin it` : 'Unpinned — your place follows your reading again');
 }
 async function exportMenu() {
@@ -903,6 +1026,7 @@ const ACTS = {
     keepPlace(() => { saveReaderPrefs({ [k]: v }); applyTheme(); renderPanel(); });
   },
   zoom: (b) => zoomStep(+b.dataset.v),
+  more: () => { const m = $r('#rdMore'); m.hidden = !m.hidden; },
   draw: () => toggleDraw(),
   goink: async (b) => { if (st.mode !== 'pdf') await setMode('pdf'); goTo(+b.dataset.v); if (innerWidth < 820) togglePanel(st.panel); },
   delink: (b) => { const it = R.S.get('rink', `${st.doc.id}_${b.dataset.v}`); if (it && confirm(`Clear all drawing on page ${b.dataset.v}?`)) R.S.put('rink', { ...it, strokes: [] }); },
@@ -929,7 +1053,14 @@ const CHANGES = {
 function wireRoot(root) {
   root.addEventListener('click', (e) => {
     const b = e.target.closest('[data-ract]');
-    if (b) { e.preventDefault(); ACTS[b.dataset.ract]?.(b, e); return; }
+    if (b) {
+      e.preventDefault();
+      // Picking something from the ⋯ menu closes it (zoom buttons keep it open for repeated taps).
+      if (b.closest('#rdMore') && b.dataset.ract !== 'zoom') $r('#rdMore').hidden = true;
+      ACTS[b.dataset.ract]?.(b, e);
+      return;
+    }
+    if (!e.target.closest('#rdMore')) { const m = $r('#rdMore'); if (m) m.hidden = true; }
     const m = e.target.closest('mark.hl, .hl-pin');
     if (m && getSelection().isCollapsed) { showNotePop(m.dataset.nid, e.clientX, e.clientY); return; }
     // Original-page view: highlight boxes sit under the text, so find them by position.
