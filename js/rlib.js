@@ -546,6 +546,22 @@ export async function annotatedPdf(d) {
       page.node.addAnnot(pdf.context.register(annot)); n++;
     }
   }
+  // Handwriting (Library ✏️) as PDF Ink annotations.
+  const rgb = (h) => [0, 2, 4].map((i) => parseInt(h.slice(1 + i, 3 + i), 16) / 255);
+  for (const it of R.S.all('rink').filter((x) => x.docId === d.id)) {
+    const page = pages[it.page - 1];
+    if (!page) continue;
+    const { width: W, height: H } = page.getSize();
+    for (const s2 of it.strokes || []) {
+      const pts = s2.p.split(' ').map((xy) => xy.split(',').map(Number)).map(([x, y]) => [(x / 10000) * W, H - (y / 10000) * H]);
+      const xs = pts.map((q) => q[0]), ys = pts.map((q) => q[1]), bw = (s2.w / 1000) * W;
+      const annot = pdf.context.obj({
+        Type: 'Annot', Subtype: 'Ink', Rect: [Math.min(...xs) - bw, Math.min(...ys) - bw, Math.max(...xs) + bw, Math.max(...ys) + bw],
+        InkList: [pts.flat()], C: rgb(s2.c), CA: s2.t === 'hl' ? 0.35 : 1, BS: { W: bw }, F: 4, T: PDFString.of(R.meName()),
+      });
+      page.node.addAnnot(pdf.context.register(annot)); n++;
+    }
+  }
   const bytes = await pdf.save();
   R.download(`${d.title.replace(/[\\/:*?"<>|]/g, '_')} (annotated).pdf`, new Blob([bytes], { type: 'application/pdf' }));
   return n;

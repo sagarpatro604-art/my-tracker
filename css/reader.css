@@ -87,7 +87,7 @@ body.reading { overflow: hidden; }
 .rd-status[hidden], .rd-remote[hidden] { display: none; }
 .rd-status.bad { color: #e5615e; }
 .rd-body { flex: 1; display: flex; min-height: 0; position: relative; }
-.rd-scroll { position: relative; flex: 1; overflow: auto; overscroll-behavior: contain; outline: none; -webkit-overflow-scrolling: touch; }
+.rd-scroll { position: relative; flex: 1; overflow: auto; touch-action: pan-x pan-y; overscroll-behavior: contain; outline: none; -webkit-overflow-scrolling: touch; }
 .rd-bot { display: flex; align-items: center; gap: 10px; padding: 5px 12px; border-top: 1px solid var(--rd-line); font-size: 12.5px; transition: opacity .2s; }
 .rd-progress { flex: 1; height: 4px; border-radius: 99px; background: var(--rd-soft); overflow: hidden; }
 .rd-progress i { display: block; height: 100%; width: 0; background: var(--accent); }
@@ -97,9 +97,9 @@ body.reading { overflow: hidden; }
 .rd.show-bars .rd-top, .rd.show-bars .rd-bot { opacity: 1; pointer-events: auto; }
 
 /* Page view (original PDF pages) */
-.rd-pages { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 14px 8px 60px; }
+.rd-pages { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 14px 8px 60px; width: max-content; min-width: 100%; box-sizing: border-box; }
 .rpage { position: relative; background: #fff; box-shadow: 0 2px 14px rgba(0, 0, 0, .18); flex: none; }
-.rpage canvas { display: block; }
+.rpage canvas { display: block; width: 100%; height: 100%; }
 .rd.pdf-dark .rpage canvas { filter: invert(.92) hue-rotate(180deg); }
 .rp-num { position: absolute; right: -2px; bottom: -20px; font-size: 11px; opacity: .55; }
 .textLayer { position: absolute; inset: 0; overflow: hidden; line-height: 1; text-size-adjust: none; forced-color-adjust: none; transform-origin: 0 0; z-index: 2; opacity: 1; }
@@ -227,3 +227,26 @@ mark.flash { background: #ff9d0066; color: inherit; animation: rdflash 2.4s ease
   .rd-continue { flex-wrap: wrap; }
   .rd-continue .btn { width: 100%; justify-content: center; }
 }
+
+/* Zoom control */
+.rd-zoom { display: inline-flex; align-items: center; border: 1px solid var(--rd-line); border-radius: 9px; overflow: hidden; flex: none; }
+.rd-zoom button { all: unset; cursor: pointer; padding: 4px 9px; font-size: 15px; line-height: 1.2; }
+.rd-zoom .rdZoomLbl { font-size: 12px; min-width: 40px; text-align: center; border-left: 1px solid var(--rd-line); border-right: 1px solid var(--rd-line); font-variant-numeric: tabular-nums; }
+.rd-zoom button:hover { background: var(--rd-soft); }
+
+/* Handwriting */
+.ink-layer { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 3; pointer-events: none; overflow: visible; }
+.ink-layer path { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.ink-layer .ink-hl { opacity: .35; mix-blend-mode: multiply; }
+.rd.pdf-dark .ink-layer .ink-hl { mix-blend-mode: normal; }
+.rd.drawing .rpage { touch-action: none; cursor: crosshair; }
+.rd.drawing .ink-layer { pointer-events: auto; }
+.rd.drawing .textLayer { pointer-events: none; }
+.rd-draw.on { background: var(--accent) !important; color: #17112a; border-radius: 10px; }
+.rd-inkbar { position: absolute; left: 50%; bottom: 44px; transform: translateX(-50%); z-index: 5; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; padding: 6px 10px; max-width: calc(100% - 16px); border-radius: 14px; background: var(--rd-bg); border: 1px solid var(--rd-line); box-shadow: 0 8px 26px rgba(0, 0, 0, .25); font-family: system-ui, sans-serif; }
+.rd-inkbar[hidden] { display: none; }
+.ink-colors { display: inline-flex; gap: 5px; }
+.ink-colors button { width: 22px; height: 22px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; padding: 0; }
+.ink-colors button.on { border-color: var(--rd-fg); box-shadow: 0 0 0 2px var(--rd-bg) inset; }
+.ink-dot { display: inline-block; border-radius: 50%; background: currentColor; vertical-align: middle; }
+@media (max-width: 820px) { .rd-zoom .rdZoomLbl { min-width: 34px; } }

@@ -7,6 +7,7 @@ import {
   addReading, flushStats, runOcr, notesMarkdown, notesText, printNotes, annotatedPdf, takeJump,
 } from './rlib.js';
 import { aiPanelHTML, AI_ACTS, aiWire } from './rai.js';
+import { paintInk, inkBarHTML, wireInk, inkUndo, INK_SET, setFinger, inkPagesOf } from './rink.js';
 
 let st = null; // the open reader
 export const readerState = () => st;
@@ -46,7 +47,7 @@ function openReader(id) {
   root.className = 'rd';
   document.body.appendChild(root);
   document.body.classList.add('reading');
-  st = { id, root, doc: null, text: null, mode: null, page: 1, frac: 0, pinned: false, saved: null, seenPages: new Set(), rendered: new Map(), filled: new Set(), panel: null, lastActivity: Date.now(), sel: null };
+  st = { id, root, doc: null, text: null, mode: null, page: 1, frac: 0, pinned: false, saved: null, seenPages: new Set(), inkUndo: [], drawing: false, rendered: new Map(), filled: new Set(), panel: null, lastActivity: Date.now(), sel: null };
   root.innerHTML = `<div class="rd-loading">${ic('book', 28)}<p>Opening…</p></div>`;
   wireRoot(root);
   st.unsub = R.S.onChange(onData);
@@ -111,6 +112,8 @@ function shell() {
     <button class="icon-btn rd-pin ${st.pinned ? 'on' : ''}" data-ract="pin" title="Keep my place here" aria-label="Keep my place here">${ic('pin', 18)}</button>
     <button class="icon-btn" data-ract="panel" data-v="ai" title="Ask AI about this document" aria-label="AI">✨</button>
     <button class="icon-btn" data-ract="panel" data-v="look" title="Reading settings" aria-label="Reading settings"><b style="font-family:Georgia,serif">Aa</b></button>
+    <span class="rd-zoom" title="Zoom (Ctrl + scroll, or pinch with two fingers)"><button data-ract="zoom" data-v="-1" aria-label="Zoom out">−</button><button data-ract="zoom" data-v="0" class="rdZoomLbl" title="Reset">100%</button><button data-ract="zoom" data-v="1" aria-label="Zoom in">+</button></span>
+    ${d.kind === 'pdf' ? `<button class="icon-btn rd-draw" data-ract="draw" title="Write / draw with a stylus (D)" aria-label="Draw">✏️</button>` : ''}
     <button class="icon-btn" data-ract="full" title="Full screen (F)" aria-label="Full screen">${ic('expand', 18)}</button>
   </header>
   <div class="rd-status" id="rdStatus" hidden></div>
@@ -128,9 +131,13 @@ function shell() {
     <button data-ract="copy" title="Copy" aria-label="Copy">${ic('copy', 15)}</button>
     <button data-ract="explain" title="Explain simply (AI)" aria-label="Explain">✨</button>
   </div>
-  <div class="rd-pop" id="rdPop" hidden></div>`;
+  <div class="rd-pop" id="rdPop" hidden></div>
+  ${inkBarHTML()}`;
   st.scroll = $r('#rdScroll');
   st.scroll.addEventListener('scroll', onScroll, { passive: true });
+  st.root.classList.toggle('m-pdf', st.mode === 'pdf');
+  wireZoom();
+  wireInk(st);
 }
 
 function applyTheme() {
@@ -163,11 +170,12 @@ async function buildPdf() {
     if (st !== me) { pdf.destroy(); return; }
     st.pdf = pdf;
   }
-  const p = readerPrefs();
   const avail = Math.min(st.scroll.clientWidth - 16, 1100);
   const pages = st.text.pages;
   const baseW = pages[0]?.sz?.[0] || 612;
-  st.scale = (avail / baseW) * (p.zoom || 1);
+  st.fitScale = avail / baseW;
+  st.zoom = devZoom();
+  st.scale = st.fitScale * st.zoom;
   const wrap = document.createElement('div');
   wrap.className = 'rd-pages';
   wrap.innerHTML = pages.map((pg, i) => {
@@ -178,6 +186,7 @@ async function buildPdf() {
   st.scroll.appendChild(wrap);
   st.io = new IntersectionObserver((ents) => ents.forEach((e) => { if (e.isIntersecting) renderPage(+e.target.dataset.page); }), { root: st.scroll, rootMargin: '1200px 0px' });
   wrap.querySelectorAll('.rpage').forEach((el) => st.io.observe(el));
+  zoomLabel();
 }
 
 async function renderPage(n) {
@@ -191,10 +200,11 @@ async function renderPage(n) {
     const page = await me.pdf.getPage(n);
     if (job.cancelled || st !== me) return;
     const vp = page.getViewport({ scale: me.scale });
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    // Sharp on high-density screens, but capped so a zoomed-in page never makes an oversized canvas.
+    let dpr = Math.min(window.devicePixelRatio || 1, 2);
+    if (vp.width * vp.height * dpr * dpr > 12e6) dpr = Math.sqrt(12e6 / (vp.width * vp.height));
     const canvas = document.createElement('canvas');
     canvas.width = Math.floor(vp.width * dpr); canvas.height = Math.floor(vp.height * dpr);
-    canvas.style.width = vp.width + 'px'; canvas.style.height = vp.height + 'px';
     const g = canvas.getContext('2d');
     await page.render({ canvasContext: g, viewport: vp, transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : null }).promise;
     if (job.cancelled || st !== me) return;
@@ -212,6 +222,7 @@ async function renderPage(n) {
     el.querySelectorAll('canvas,.textLayer,.hl-layer').forEach((x) => x.remove());
     el.append(canvas, hl, tl);
     paintPdfHighlights(n);
+    paintInk(st, n);
     if (st.flash?.page === n) flashQuote();
     pruneRendered();
   } catch (e) {
@@ -552,6 +563,8 @@ function onData() {
   // Notes changed (here or on another device): repaint what is on screen.
   const sig = notesOf(d.id).map((n) => n.id + (n.updatedAt || '')).join();
   if (sig !== st.noteSig) { st.noteSig = sig; repaintAll(); if (st.panel === 'notes') renderPanel(); }
+  const isig = inkPagesOf(d.id).map((x) => x.id + (x.updatedAt || '')).join();
+  if (isig !== st.inkSig) { st.inkSig = isig; if (st.mode === 'pdf') for (const n of st.rendered.keys()) paintInk(st, n); if (st.panel === 'notes') renderPanel(); }
   const p = progOf(d.id);
   if (p) {
     st.pinned = !!p.pinned;
@@ -598,10 +611,12 @@ export function renderPanel() {
     const f = st.noteFilter || 'all';
     const all = notesOf(d.id).sort((a, b) => (a.page || 0) - (b.page || 0) || (a.at || '').localeCompare(b.at || ''));
     const list = all.filter((n) => f === 'all' || n.kind === f);
+    const inks = inkPagesOf(d.id).sort((a, b) => a.page - b.page);
     pan.innerHTML = `<div class="rp-head"><b>Highlights &amp; notes</b>${close}</div>
-      <div class="chips">${[['all', 'All'], ['highlight', 'Highlights'], ['note', 'Notes'], ['bookmark', 'Bookmarks'], ['ai', 'AI'], ['card', 'Cards']].map(([k, l]) => `<button class="chip ${f === k ? 'active' : ''}" data-ract="nf" data-v="${k}">${l} <span class="muted">${k === 'all' ? all.length : all.filter((n) => n.kind === k).length}</span></button>`).join('')}</div>
+      <div class="chips">${[['all', 'All'], ['highlight', 'Highlights'], ['note', 'Notes'], ['bookmark', 'Bookmarks'], ['ink', 'Drawings'], ['ai', 'AI'], ['card', 'Cards']].map(([k, l]) => `<button class="chip ${f === k ? 'active' : ''}" data-ract="nf" data-v="${k}">${l} <span class="muted">${k === 'all' ? all.length : k === 'ink' ? inks.length : all.filter((n) => n.kind === k).length}</span></button>`).join('')}</div>
       <div class="row rp-tools"><button class="btn sm" data-ract="newnote">${ic('plus', 14)} Note on page ${st.page}</button><button class="btn sm ghost" data-ract="export">${ic('download', 14)} Export</button></div>
-      <div class="rp-list">${list.length ? list.map(noteRow).join('') : '<p class="muted small">Select text to highlight it or add a note. Press B to bookmark a page.</p>'}</div>`;
+      <div class="rp-list">${f === 'ink' ? (inks.length ? inks.map((x) => `<div class="nrow"><button class="nrow-main" data-ract="goink" data-v="${x.page}"><span class="nrow-meta">✏️ p. ${x.page}</span><span>${x.strokes.length} stroke${x.strokes.length === 1 ? '' : 's'}</span></button><span class="nrow-act"><button class="icon-btn" data-ract="delink" data-v="${x.page}" aria-label="Clear drawing">${ic('trash', 13)}</button></span></div>`).join('') : '<p class="muted small">Tap ✏️ to write on a page with a stylus, mouse or finger.</p>')
+        : list.length ? list.map(noteRow).join('') : '<p class="muted small">Select text to highlight it or add a note. Press B to bookmark a page.</p>'}</div>`;
   } else if (st.panel === 'look') {
     const p = readerPrefs();
     pan.innerHTML = `<div class="rp-head"><b>Reading settings</b>${close}</div>
@@ -616,10 +631,10 @@ export function renderPanel() {
         <div class="row"><span class="small muted">Alignment</span><div class="seg">${[['left', 'Left'], ['justify', 'Justify']].map(([k, l]) => `<button data-ract="pref" data-k="align" data-v="${k}" class="${p.align === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>
         <label class="check-line small"><input type="checkbox" data-rchange="autoOrig" ${p.autoOrig !== false ? 'checked' : ''}> Show tables and charts as the original page</label>
         ${d.kind === 'pdf' ? `<label>Page view</label>
-        <div class="row"><span class="small muted">Zoom</span><span class="stepper"><button data-ract="step" data-k="zoom" data-v="-0.1">−</button><b>${Math.round((p.zoom || 1) * 100)}%</b><button data-ract="step" data-k="zoom" data-v="0.1">+</button></span></div>
+        <div class="row"><span class="small muted">Zoom (this device)</span><span class="stepper"><button data-ract="zoom" data-v="-1">−</button><b class="rdZoomLbl">${Math.round((st.zoom || 1) * 100)}%</b><button data-ract="zoom" data-v="1">+</button></span></div>
         <label class="check-line small"><input type="checkbox" data-rchange="pdfDark" ${p.pdfDark ? 'checked' : ''}> Dark pages (invert colours)</label>
         <label class="check-line small"><input type="checkbox" data-rchange="defText" ${p.defMode === 'flow' ? 'checked' : ''}> Open new documents in Text view</label>` : ''}
-        <p class="muted small">Keys: H highlight · U underline · N note · B bookmark · F full screen · Ctrl+F search · ← → pages</p>
+        <p class="muted small">Zoom: pinch with two fingers, Ctrl + mouse wheel or trackpad pinch, or + / − keys.<br>Keys: H highlight · U underline · N note · B bookmark · D draw · F full screen · Ctrl+F search · ← → pages</p>
       </div>`;
   } else if (st.panel === 'ai') {
     pan.innerHTML = `<div class="rp-head"><b>✨ Ask AI</b>${close}</div>${aiPanelHTML(st)}`;
@@ -667,15 +682,134 @@ function showNotePop(nid, x, y) {
   pop.style.top = Math.min(box.height - 160, y - box.top + 14) + 'px';
 }
 
+/* ---------- zoom: buttons, Ctrl + wheel / trackpad pinch, two-finger pinch ----------
+   Page view zooms the pages (remembered per device, since screens differ). Text view: the same
+   controls and gestures change the text size instead. */
+const ZKEY = 'pb.rzoom';
+const devZoom = () => { try { return Math.min(4, Math.max(0.5, +localStorage.getItem(ZKEY) || 1)); } catch { return 1; } };
+function zoomLabel() { st.root.querySelectorAll('.rdZoomLbl').forEach((b) => { b.textContent = st.mode === 'pdf' ? Math.round((st.zoom || 1) * 100) + '%' : readerPrefs().size + 'px'; }); }
+function setZoom(z, cx, cy) {
+  if (st.mode !== 'pdf') return;
+  z = Math.round(Math.min(4, Math.max(0.5, z)) * 100) / 100;
+  if (Math.abs(z - st.zoom) < 0.005) { zoomLabel(); return; }
+  const sc = st.scroll, box = sc.getBoundingClientRect();
+  const ox = (cx ?? box.left + sc.clientWidth / 2) - box.left, oy = (cy ?? box.top + sc.clientHeight / 2) - box.top;
+  const px = sc.scrollLeft + ox, py = sc.scrollTop + oy, ratio = z / st.zoom;
+  st.zoom = z;
+  try { localStorage.setItem(ZKEY, String(z)); } catch {}
+  layoutPdf();
+  sc.scrollLeft = px * ratio - ox;
+  sc.scrollTop = py * ratio - oy;
+  zoomLabel();
+  clearTimeout(st.zoomT);
+  st.zoomT = setTimeout(() => { if (st) { ensureNear(); trackPosition(); } }, 120);
+}
+// New page sizes for the new zoom. The old picture stays (stretched) until the sharp one is drawn.
+function layoutPdf() {
+  st.scale = st.fitScale * st.zoom;
+  for (const job of st.rendered.values()) job.cancelled = true;
+  st.rendered.clear();
+  st.text.pages.forEach((pg, i) => {
+    const el = st.root.querySelector(`.rpage[data-page="${i + 1}"]`);
+    if (!el) return;
+    const [w, h] = pg.sz || [612, 792];
+    el.style.width = Math.round(w * st.scale) + 'px';
+    el.style.height = Math.round(h * st.scale) + 'px';
+    el.querySelectorAll('.textLayer,.hl-layer').forEach((x) => x.remove());
+  });
+  // Re-observe so every page now on screen is drawn again at the new size.
+  if (st.io) { st.io.disconnect(); st.root.querySelectorAll('.rpage').forEach((el) => st.io.observe(el)); }
+}
+function textZoom(f) {
+  const p = readerPrefs();
+  const v = Math.round(Math.min(34, Math.max(12, p.size * f)));
+  if (v !== p.size) keepPlace(() => { saveReaderPrefs({ size: v }); applyTheme(); zoomLabel(); if (st.panel === 'look') renderPanel(); });
+}
+function zoomStep(dir) {
+  if (st.mode === 'pdf') setZoom(dir === 0 ? 1 : st.zoom * (dir > 0 ? 1.2 : 1 / 1.2));
+  else textZoom(dir === 0 ? 19 / readerPrefs().size : dir > 0 ? 1.1 : 1 / 1.1);
+}
+function previewScale(f, cx, cy) {
+  const wrap = $r('.rd-pages');
+  if (!wrap) return;
+  const box = st.scroll.getBoundingClientRect();
+  wrap.style.transformOrigin = `${cx - box.left + st.scroll.scrollLeft - wrap.offsetLeft}px ${cy - box.top + st.scroll.scrollTop - wrap.offsetTop}px`;
+  wrap.style.transform = `scale(${f})`;
+}
+function clearPreview() { const wrap = $r('.rd-pages'); if (wrap) { wrap.style.transform = ''; wrap.style.transformOrigin = ''; } }
+function wireZoom() {
+  const sc = st.scroll;
+  // Ctrl + wheel, and trackpad pinch (browsers report it as Ctrl + wheel).
+  sc.addEventListener('wheel', (e) => {
+    if (!e.ctrlKey && !e.metaKey) return;
+    e.preventDefault();
+    const x = e.clientX, y = e.clientY;
+    clearTimeout(st.wzT);
+    if (st.mode === 'pdf') {
+      st.wz = Math.min(4, Math.max(0.5, (st.wz || st.zoom) * Math.exp(-e.deltaY * 0.0025)));
+      previewScale(st.wz / st.zoom, x, y);
+      st.wzT = setTimeout(() => { const z = st.wz; st.wz = null; clearPreview(); setZoom(z, x, y); }, 140);
+    } else {
+      st.wf = (st.wf || 1) * Math.exp(-e.deltaY * 0.004);
+      st.wzT = setTimeout(() => { textZoom(st.wf); st.wf = 1; }, 160);
+    }
+  }, { passive: false });
+  // Two-finger pinch on phones and tablets.
+  let pinch = null;
+  sc.addEventListener('touchstart', (e) => {
+    if (e.touches.length !== 2) return;
+    const [a, b] = e.touches;
+    pinch = { d: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) || 1, x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2, f: 1 };
+    st.pinching = true;
+  }, { passive: true });
+  sc.addEventListener('touchmove', (e) => {
+    if (!pinch || e.touches.length !== 2) return;
+    e.preventDefault();
+    const [a, b] = e.touches;
+    pinch.f = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) / pinch.d;
+    if (st.mode === 'pdf') previewScale(Math.min(4 / st.zoom, Math.max(0.5 / st.zoom, pinch.f)), pinch.x, pinch.y);
+  }, { passive: false });
+  const endPinch = (e) => {
+    if (!pinch || e.touches.length >= 2) return;
+    const p = pinch;
+    pinch = null;
+    st.pinching = false;
+    clearPreview();
+    if (Math.abs(p.f - 1) < 0.04) return;
+    if (st.mode === 'pdf') setZoom(st.zoom * p.f, p.x, p.y); else textZoom(p.f);
+  };
+  sc.addEventListener('touchend', endPinch);
+  sc.addEventListener('touchcancel', endPinch);
+}
+
+/* ---------- drawing with a stylus / mouse / finger (Page view) ---------- */
+async function toggleDraw(on = !st.drawing) {
+  if (st.doc.kind !== 'pdf') { R.toast('Drawing works on PDF pages'); return; }
+  if (on && st.mode !== 'pdf') await setMode('pdf');
+  st.drawing = on;
+  st.root.classList.toggle('drawing', on);
+  $r('.rd-draw')?.classList.toggle('on', on);
+  const bar = $r('#rdInk');
+  if (bar) bar.hidden = !on;
+  getSelection().removeAllRanges();
+  $r('#rdSel').hidden = true;
+  let seen = true;
+  try { seen = !!localStorage.getItem('pb.inkHelp'); if (!seen) localStorage.setItem('pb.inkHelp', '1'); } catch {}
+  if (on && !seen) R.toast('Write with your stylus. A finger scrolls; two fingers zoom.');
+}
+
 /* ---------- actions ---------- */
 async function setMode(m) {
   if (m === st.mode) return;
+  if (m === 'flow' && st.drawing) toggleDraw(false);
   const pos = currentPos();
   st.mode = m;
+  st.root.classList.toggle('m-pdf', m === 'pdf');
   st.root.querySelectorAll('[data-ract=mode]').forEach((b) => b.classList.toggle('on', b.dataset.v === m));
   setStatus('Switching…');
   await buildView();
   setStatus('');
+  zoomLabel();
   goTo(pos.page, { frac: pos.frac, quiet: true });
   R.S.put('rprog', { ...(progOf(st.doc.id) || { id: st.doc.id, page: pos.page, frac: pos.frac }), mode: m, id: st.doc.id });
 }
@@ -768,6 +902,11 @@ const ACTS = {
     if (k === 'zoom') { saveReaderPrefs({ [k]: v }); renderPanel(); if (st.mode === 'pdf') rebuildKeep(); return; }
     keepPlace(() => { saveReaderPrefs({ [k]: v }); applyTheme(); renderPanel(); });
   },
+  zoom: (b) => zoomStep(+b.dataset.v),
+  draw: () => toggleDraw(),
+  goink: async (b) => { if (st.mode !== 'pdf') await setMode('pdf'); goTo(+b.dataset.v); if (innerWidth < 820) togglePanel(st.panel); },
+  delink: (b) => { const it = R.S.get('rink', `${st.doc.id}_${b.dataset.v}`); if (it && confirm(`Clear all drawing on page ${b.dataset.v}?`)) R.S.put('rink', { ...it, strokes: [] }); },
+  ...Object.fromEntries(Object.entries(INK_SET).map(([k, f]) => [k, (b) => f(st, b)])),
   ...Object.fromEntries(Object.entries(AI_ACTS).filter(([k]) => k !== 'run').map(([k, f]) => [k, (b) => f(st, b)])),
 };
 // Font, size, spacing or margin changes re-flow the text: stay on the same sentence.
@@ -784,6 +923,7 @@ const CHANGES = {
   pdfDark: (el) => { saveReaderPrefs({ pdfDark: el.checked }); applyTheme(); },
   autoOrig: (el) => saveReaderPrefs({ autoOrig: el.checked }),
   defText: (el) => saveReaderPrefs({ defMode: el.checked ? 'flow' : 'pdf' }),
+  inkfinger: (el) => setFinger(el.checked),
 };
 
 function wireRoot(root) {
@@ -803,6 +943,12 @@ function wireRoot(root) {
   root.addEventListener('change', (e) => { const el = e.target.closest('[data-rchange]'); if (el) CHANGES[el.dataset.rchange]?.(el); });
   root.addEventListener('mouseup', () => setTimeout(onSelection, 10));
   root.addEventListener('touchend', () => setTimeout(onSelection, 250));
+  // A stylus used on the page outside drawing mode: point out the pen tool once.
+  root.addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'pen' || st?.drawing || st?.mode !== 'pdf' || !e.target.closest('.rpage')) return;
+    try { if (localStorage.getItem('pb.penHint')) return; localStorage.setItem('pb.penHint', '1'); } catch {}
+    R.toast('Stylus detected — tap ✏️ (or press D) to write on the page');
+  });
   root.addEventListener('pointermove', (e) => { st && (st.lastActivity = Date.now()); if (document.fullscreenElement || root.classList.contains('rd-zen')) { root.classList.toggle('show-bars', e.clientY < 70 || e.clientY > innerHeight - 50); } });
 }
 document.addEventListener('selectionchange', () => { if (st && !getSelection().isCollapsed) { clearTimeout(st.selT); st.selT = setTimeout(onSelection, 400); } });
@@ -811,6 +957,8 @@ document.addEventListener('keydown', (e) => {
   st.lastActivity = Date.now();
   const typing = /INPUT|TEXTAREA|SELECT/.test(e.target.tagName);
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') { e.preventDefault(); st.panel = 'search'; renderPanel(); return; }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && st.drawing) { e.preventDefault(); inkUndo(st); return; }
+  if ((e.ctrlKey || e.metaKey) && ['=', '+', '-', '0'].includes(e.key)) { e.preventDefault(); zoomStep(e.key === '-' ? -1 : e.key === '0' ? 0 : 1); return; }
   if (typing) { if (e.key === 'Escape') e.target.blur(); return; }
   const k = e.key.toLowerCase();
   if (k === 'escape') { if (!$r('#rdSel').hidden) { $r('#rdSel').hidden = true; getSelection().removeAllRanges(); } else if (st.panel) togglePanel(st.panel); else if (st.root.classList.contains('rd-zen')) st.root.classList.remove('rd-zen'); }
@@ -818,6 +966,10 @@ document.addEventListener('keydown', (e) => {
   else if (k === 'u' && st.sel) createFromSelection('highlight', st.lastColor || 'yellow', 'underline');
   else if (k === 'n') { if (st.sel) { const n = createFromSelection('note', st.lastColor || 'yellow'); if (n) editNote(n, true); } else ACTS.newnote(); }
   else if (k === 'b') toggleBookmark();
+  else if (k === 'd') toggleDraw();
+  else if (e.key === '+' || e.key === '=') zoomStep(1);
+  else if (e.key === '-') zoomStep(-1);
+  else if (e.key === '0') zoomStep(0);
   else if (k === 'f') toggleFull();
   else if (k === '/') { e.preventDefault(); st.panel = 'search'; renderPanel(); }
   else if (e.key === 'ArrowRight' || e.key === 'PageDown') { if (st.mode === 'pdf' || e.key === 'PageDown') { e.preventDefault(); goTo(st.page + 1); } }
