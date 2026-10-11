@@ -69,6 +69,7 @@ const card = (d) => `<article class="doc-card">
   ${d.notes ? `<p class="doc-notes">${X.esc(d.notes)}</p>` : ''}
   <div class="doc-foot">${X.avatar(d.uploadedBy)}<span class="muted small grow">${X.esc(who(d.uploadedBy))} · ${X.fmtDate((d.createdAt || '').slice(0, 10))}</span>
     ${viewable(d) ? `<button class="icon-btn" data-act="libView" data-id="${d.id}" aria-label="Open" title="Open">${X.ic('expand', 15)}</button>` : ''}
+    ${/pdf/.test(d.type) || ext(d.name) === 'pdf' ? `<button class="icon-btn" data-act="rdFromCo" data-id="${d.id}" aria-label="Read in Library" title="Read in my Library (keeps your place, highlights and notes)">📖</button>` : ''}
     <button class="icon-btn" data-act="libDl" data-id="${d.id}" aria-label="Download" title="Download">${X.ic('download', 15)}</button>
     <button class="icon-btn" data-act="libEdit" data-id="${d.id}" aria-label="Edit" title="Rename, move or delete">${X.ic('pen', 15)}</button></div>
 </article>`;

@@ -3,6 +3,7 @@ import { INSTA, USERS } from './config.js';
 import { parseTracker, exportExcel } from './excel.js';
 import { initBudget, viewBudget, budgetShelfCard, wireDrop, BUDGET_ACTS, BUDGET_FORMS, BUDGET_CHANGES, BUDGET_INPUTS } from './budget.js';
 import { initLibrary, viewLibrary, libraryShelfCard, wireLibraryDrop, LIB_ACTS, LIB_CHANGES, LIB_INPUTS } from './library.js';
+import { initReader, viewLibraryHome, syncReader, READ_ACTS, READ_CHANGES, READ_INPUTS, wireReaderDrop } from './rdash.js';
 
 /* ---------------- helpers ---------------- */
 const $ = (s, r = document) => r.querySelector(s);
@@ -70,6 +71,7 @@ const ICONS = {
   chat: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12Z"/>',
   chevD: '<path d="m6 9 6 6 6-6"/>',
   star: '<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9Z"/>',
+  reader: '<path d="M2 5.5C4.5 4 7.5 4 12 6c4.5-2 7.5-2 10-.5V19c-2.5-1.5-5.5-1.5-10 .5C7.5 17.5 4.5 17.5 2 19Z"/><path d="M12 6v13.5"/>',
   wallet: '<path d="M19 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-3"/><path d="M21 8h-5a3 3 0 0 0 0 6h5z"/><circle cx="16" cy="11" r=".6" fill="currentColor"/>',
 };
 const ic = (n, s = 18) => `<svg class="ic" viewBox="0 0 24 24" width="${s}" height="${s}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[n] || ''}</svg>`;
@@ -580,7 +582,7 @@ function closeSearch() {
 }
 
 /* ---------------- Navigation ---------------- */
-const NAV = [['', 'Dashboard', 'home'], ['schedule', 'Schedule', 'calendar'], ['tasks', 'To-Do', 'todo'], ['insta', 'Instagram', 'insta'], ['company', 'Company shelf', 'briefcase'], ['thoughts', 'Thoughts', 'pen'], ['books', 'Bookshelf', 'book'], ['ideas', 'Content ideas', 'bulb']];
+const NAV = [['', 'Dashboard', 'home'], ['schedule', 'Schedule', 'calendar'], ['tasks', 'To-Do', 'todo'], ['insta', 'Instagram', 'insta'], ['company', 'Company shelf', 'briefcase'], ['read', 'Library', 'reader'], ['thoughts', 'Thoughts', 'pen'], ['books', 'Bookshelf', 'book'], ['ideas', 'Content ideas', 'bulb']];
 const BOTTOM_NAV = ['', 'schedule', 'tasks', 'thoughts', 'company'];
 function buildNav() {
   const gs = $('#globalSearch');
@@ -1496,11 +1498,12 @@ function viewSetupKey() {
 }
 
 /* ---------------- router & render ---------------- */
-const ROUTES = { '': viewDashboard, schedule: viewSchedule, tasks: viewTasks, insta: viewInsta, company: viewCompany, mybook: viewMyBook, budget: viewBudget, docs: viewLibrary, thoughts: viewThoughts, books: viewBooks, ideas: viewIdeas, settings: viewSettings };
+const ROUTES = { '': viewDashboard, schedule: viewSchedule, tasks: viewTasks, insta: viewInsta, company: viewCompany, mybook: viewMyBook, budget: viewBudget, docs: viewLibrary, read: viewLibraryHome, thoughts: viewThoughts, books: viewBooks, ideas: viewIdeas, settings: viewSettings };
 const route = () => location.hash.replace(/^#\/?/, '').split(/[?#]/)[0];
 
 function render() {
-  const r = ROUTES[route()] && (route() !== 'insta' || hasFeat('insta')) ? route() : '';
+  const full = route(), base = full.split('/')[0];
+  const r = ROUTES[base] && (base !== 'insta' || hasFeat('insta')) ? base : '';
   document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === r || ((r === 'mybook' || r === 'budget' || r === 'docs') && a.dataset.nav === 'company')));
   const view = $('#view');
   const boardScroll = [...view.querySelectorAll('[data-board]')].map((b) => [b.dataset.board, b.scrollLeft]);
@@ -1509,8 +1512,10 @@ function render() {
   view.innerHTML = S.status.needsKey ? viewSetupKey() : out ? viewLogin() : ROUTES[r]();
   if (out && ui.loginUser) setTimeout(() => $('#codeIn')?.focus(), 0);
   for (const [name, left] of boardScroll) { const b = view.querySelector(`[data-board="${name}"]`); if (b) b.scrollLeft = left; }
-  document.title = `${{ '': 'Dashboard', schedule: 'Schedule', tasks: 'To-Do', insta: 'Instagram', company: 'Company shelf', mybook: 'My Book', budget: 'Budget', docs: 'Documents', thoughts: 'Thoughts', books: 'Bookshelf', ideas: 'Ideas', settings: 'Settings' }[r]} · Playbook`;
+  document.title = `${{ '': 'Dashboard', schedule: 'Schedule', tasks: 'To-Do', insta: 'Instagram', company: 'Company shelf', mybook: 'My Book', budget: 'Budget', docs: 'Documents', read: 'Library', thoughts: 'Thoughts', books: 'Bookshelf', ideas: 'Ideas', settings: 'Settings' }[r]} · Playbook`;
   afterRender();
+  // The reader is a layer over the page (#/read/<id>); it keeps its own state across re-renders.
+  syncReader(out || S.status.needsKey ? '' : full);
 }
 
 // Don't yank the page out from under someone typing; re-render once they leave the field.
@@ -1858,6 +1863,11 @@ Object.assign(CHANGES, LIB_CHANGES);
 Object.assign(INPUTS, LIB_INPUTS);
 initLibrary({ S, esc, ic, opts, field, empty, banner, avatar, userOf, ME, fmtDate, toast, download, openModal, closeModal, render });
 wireLibraryDrop();
+Object.assign(ACTS, READ_ACTS);
+Object.assign(CHANGES, READ_CHANGES);
+Object.assign(INPUTS, READ_INPUTS);
+initReader({ S, esc, ic, opts, field, stat, empty, banner, avatar, userOf, ME, today, addDays, fmtDate, toast, download, copyText, openModal, closeModal, render, meName: () => meUser().name });
+wireReaderDrop();
 
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-act]');
