@@ -14,8 +14,8 @@ const FB_VER = '10.12.2';
 const KEY_LS = 'tracker.vaultKey';
 const USER_LS = 'tracker.user';
 const LOCAL_LS = 'tracker.localBuckets';
-const SINGLE_BUCKET = new Set(['books', 'settings', 'mybook', 'csettings', 'rprog', 'rstats', 'screens']);
-const COL_SPACE = { reels: 'sys', ctasks: 'co', csettings: 'co', mybook: 'co', expenses: 'co', docs: 'co', screens: 'co' }; // My Book is company material (both people see it)
+const SINGLE_BUCKET = new Set(['books', 'settings', 'mybook', 'csettings', 'rprog', 'rstats', 'screens', 'sreq']);
+const COL_SPACE = { reels: 'sys', ctasks: 'co', csettings: 'co', mybook: 'co', expenses: 'co', docs: 'co', screens: 'co', sreq: 'co' }; // My Book is company material (both people see it)
 const READ_SPACES = { settings: ['me', 'sys'] }; // instaSync is written into the shared settings by the nightly job
 const ABC = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 
@@ -204,6 +204,13 @@ export async function getFile(id, onProgress, sp = 'co') {
     onProgress?.(i / rec.parts);
   }
   return { ...rec, data: chunks.join('') };
+}
+// A document kept beside the buckets and out of the live sync (zscreens_*: the Screener Studio pack and custom
+// run results), read once when a page needs it.
+export async function getDocData(bid, sp = 'co') {
+  if (!fb) return null;
+  const d = await fb.fs.getDoc(docRef(sp, bid));
+  return d.exists() ? d.data() : null;
 }
 export async function deleteFile(id, sp = 'co') {
   if (!fb) { const all = localFiles(sp); delete all[id]; localStorage.setItem(filesKey(sp), JSON.stringify(all)); return; }

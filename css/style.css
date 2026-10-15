@@ -821,3 +821,15 @@ body.dragging-docs .doc-drop { display: grid; place-items: center; position: fix
 .scr-n { font-size: 26px; font-weight: 800; line-height: 1.1; }
 tr.clickable { cursor: pointer; }
 tr.clickable:hover td { background: var(--surface-2); }
+.scr-fp .card-head { flex-wrap: wrap; gap: 8px; }
+.scr-fgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px 16px; margin-top: 8px; }
+.scr-fgrid label, .scr-params label { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 13px; }
+.scr-fgrid input.input, .scr-params input.input { width: 76px; flex: none; }
+.scr-params { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px 16px; margin: 8px 0 12px; }
+.scr-star { border: 0; background: none; cursor: pointer; font-size: 17px; color: var(--muted); padding: 0 6px 0 0; line-height: 1; opacity: .55; }
+.scr-star.on { color: #e8a317; opacity: 1; }
+.scr-mini { border: 1px solid var(--border); background: var(--surface-2); color: var(--text); border-radius: 6px; font: inherit; font-size: 11px; padding: 1px 6px; margin-left: 6px; cursor: pointer; }
+.scr-how p { font-size: 14px; line-height: 1.55; }
+.tag.good { color: var(--good); } .tag.bad { color: var(--bad); }
+.tag.ev-strong { color: var(--good); } .tag.ev-weak { color: var(--bad); }
+.nowrap { white-space: nowrap; }
