@@ -1861,7 +1861,7 @@ Object.assign(INPUTS, BUDGET_INPUTS);
 Object.assign(ACTS, SCREENS_ACTS);
 Object.assign(CHANGES, SCREENS_CHANGES);
 Object.assign(INPUTS, SCREENS_INPUTS);
-initScreens({ S, esc, ic, empty, banner, fmtDate, fmtDT, sign, render });
+initScreens({ S, esc, ic, empty, banner, fmtDate, fmtDT, sign, stat, render });
 initBudget({ S, esc, ic, opts, field, stat, empty, banner, avatar, userOf, ME, today, ymd, parseYmd, addDays, fmtDate, MON, MON_LONG, toast, download, openModal, closeModal, render });
 wireDrop();
 Object.assign(ACTS, LIB_ACTS);
