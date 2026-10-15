@@ -2,6 +2,7 @@ import * as S from './store.js';
 import { INSTA, USERS } from './config.js';
 import { parseTracker, exportExcel } from './excel.js';
 import { initBudget, viewBudget, budgetShelfCard, wireDrop, BUDGET_ACTS, BUDGET_FORMS, BUDGET_CHANGES, BUDGET_INPUTS } from './budget.js';
+import { initScreens, viewScreens, screensShelfCard, SCREENS_ACTS, SCREENS_CHANGES, SCREENS_INPUTS } from './screens.js';
 import { initLibrary, viewLibrary, libraryShelfCard, wireLibraryDrop, LIB_ACTS, LIB_CHANGES, LIB_INPUTS } from './library.js';
 import { initReader, viewLibraryHome, syncReader, READ_ACTS, READ_CHANGES, READ_INPUTS, wireReaderDrop } from './rdash.js';
 
@@ -1231,6 +1232,7 @@ function viewCompany() {
     <button class="shelf-card" data-act="openCompany">
       <span class="shelf-ic">${ic('users', 22)}</span>
       <span class="grow"><b>Company board</b><small>${co.filter((x) => !x.done).length} open · ${co.filter((x) => statusOf(x) === 'progress').length} in progress · ${co.filter((x) => x.done).length} done</small></span>${ic('arrowR', 18)}</button>
+    ${screensShelfCard()}
     ${budgetShelfCard()}
     ${libraryShelfCard()}
     <div class="shelf-card soon">
@@ -1498,13 +1500,13 @@ function viewSetupKey() {
 }
 
 /* ---------------- router & render ---------------- */
-const ROUTES = { '': viewDashboard, schedule: viewSchedule, tasks: viewTasks, insta: viewInsta, company: viewCompany, mybook: viewMyBook, budget: viewBudget, docs: viewLibrary, read: viewLibraryHome, thoughts: viewThoughts, books: viewBooks, ideas: viewIdeas, settings: viewSettings };
+const ROUTES = { '': viewDashboard, schedule: viewSchedule, tasks: viewTasks, insta: viewInsta, company: viewCompany, mybook: viewMyBook, screens: viewScreens, budget: viewBudget, docs: viewLibrary, read: viewLibraryHome, thoughts: viewThoughts, books: viewBooks, ideas: viewIdeas, settings: viewSettings };
 const route = () => location.hash.replace(/^#\/?/, '').split(/[?#]/)[0];
 
 function render() {
   const full = route(), base = full.split('/')[0];
   const r = ROUTES[base] && (base !== 'insta' || hasFeat('insta')) ? base : '';
-  document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === r || ((r === 'mybook' || r === 'budget' || r === 'docs') && a.dataset.nav === 'company')));
+  document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === r || ((r === 'mybook' || r === 'screens' || r === 'budget' || r === 'docs') && a.dataset.nav === 'company')));
   const view = $('#view');
   const boardScroll = [...view.querySelectorAll('[data-board]')].map((b) => [b.dataset.board, b.scrollLeft]);
   const out = !S.status.needsKey && !S.status.user;
@@ -1512,7 +1514,7 @@ function render() {
   view.innerHTML = S.status.needsKey ? viewSetupKey() : out ? viewLogin() : ROUTES[r]();
   if (out && ui.loginUser) setTimeout(() => $('#codeIn')?.focus(), 0);
   for (const [name, left] of boardScroll) { const b = view.querySelector(`[data-board="${name}"]`); if (b) b.scrollLeft = left; }
-  document.title = `${{ '': 'Dashboard', schedule: 'Schedule', tasks: 'To-Do', insta: 'Instagram', company: 'Company shelf', mybook: 'My Book', budget: 'Budget', docs: 'Documents', read: 'Library', thoughts: 'Thoughts', books: 'Bookshelf', ideas: 'Ideas', settings: 'Settings' }[r]} · Playbook`;
+  document.title = `${{ '': 'Dashboard', schedule: 'Schedule', tasks: 'To-Do', insta: 'Instagram', company: 'Company shelf', mybook: 'My Book', screens: 'Technical screens', budget: 'Budget', docs: 'Documents', read: 'Library', thoughts: 'Thoughts', books: 'Bookshelf', ideas: 'Ideas', settings: 'Settings' }[r]} · Playbook`;
   afterRender();
   // The reader is a layer over the page (#/read/<id>); it keeps its own state across re-renders.
   syncReader(out || S.status.needsKey ? '' : full);
@@ -1856,6 +1858,10 @@ Object.assign(ACTS, BUDGET_ACTS);
 Object.assign(FORMS, BUDGET_FORMS);
 Object.assign(CHANGES, BUDGET_CHANGES);
 Object.assign(INPUTS, BUDGET_INPUTS);
+Object.assign(ACTS, SCREENS_ACTS);
+Object.assign(CHANGES, SCREENS_CHANGES);
+Object.assign(INPUTS, SCREENS_INPUTS);
+initScreens({ S, esc, ic, empty, banner, fmtDate, fmtDT, sign, render });
 initBudget({ S, esc, ic, opts, field, stat, empty, banner, avatar, userOf, ME, today, ymd, parseYmd, addDays, fmtDate, MON, MON_LONG, toast, download, openModal, closeModal, render });
 wireDrop();
 Object.assign(ACTS, LIB_ACTS);

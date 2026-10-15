@@ -14,8 +14,8 @@ const FB_VER = '10.12.2';
 const KEY_LS = 'tracker.vaultKey';
 const USER_LS = 'tracker.user';
 const LOCAL_LS = 'tracker.localBuckets';
-const SINGLE_BUCKET = new Set(['books', 'settings', 'mybook', 'csettings', 'rprog', 'rstats']);
-const COL_SPACE = { reels: 'sys', ctasks: 'co', csettings: 'co', mybook: 'co', expenses: 'co', docs: 'co' }; // My Book is company material (both people see it)
+const SINGLE_BUCKET = new Set(['books', 'settings', 'mybook', 'csettings', 'rprog', 'rstats', 'screens']);
+const COL_SPACE = { reels: 'sys', ctasks: 'co', csettings: 'co', mybook: 'co', expenses: 'co', docs: 'co', screens: 'co' }; // My Book is company material (both people see it)
 const READ_SPACES = { settings: ['me', 'sys'] }; // instaSync is written into the shared settings by the nightly job
 const ABC = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 

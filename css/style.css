@@ -809,3 +809,15 @@ body.dragging-docs .doc-drop { display: grid; place-items: center; position: fix
 .up-list { display: grid; gap: 8px; margin: 4px 0 12px; max-height: 40vh; overflow: auto; }
 .up-row { display: flex; align-items: center; gap: 8px; }
 .up-row .input { flex: 1; min-width: 0; }
+
+/* Technical screens (from Screener Studio) */
+.scr-market { padding: 10px 14px; font-weight: 600; }
+.scr-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 12px 0; }
+.scr-controls .seg button { padding: 6px 12px; font-size: 13px; }
+.scr-q { max-width: 180px; }
+.scr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.scr-card { display: flex; flex-direction: column; gap: 3px; text-align: left; cursor: pointer; font: inherit; color: inherit; }
+.scr-card:hover { border-color: var(--accent); }
+.scr-n { font-size: 26px; font-weight: 800; line-height: 1.1; }
+tr.clickable { cursor: pointer; }
+tr.clickable:hover td { background: var(--surface-2); }
