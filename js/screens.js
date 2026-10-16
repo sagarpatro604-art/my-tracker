@@ -17,7 +17,7 @@ const EVN = { strong: 'strong evidence', moderate: 'moderate evidence', weak: 'w
 const TFN = { D: 'daily', W: 'weekly', M: 'monthly' };
 const UNIT = { D: 'session', W: 'week', M: 'month' };
 const FMET = { mom_min: 'mom', vam_min: 'vam', resmom_min: 'resmom', smooth_max: 'fip', prox_min: 'prox', ind_min: 'ind_rs', sec_min: 'sec_rs', dip_min: 'ret5', calm_max: 'vol', spike_max: 'max21', vol_min: 'abvol', ext_max: 'ext50' };
-const NUMS = new Set(['close', 'sig_close', 'chg_since', 'level', 'stop', 'tv_cr', 'age', 'mom', 'vam', 'resmom', 'fip', 'prox', 'ind_rs', 'sec_rs', 'ret5', 'vol', 'max21', 'abvol', 'ext50', 'sc_rs', 'bounce_rate', 'past_touches']);
+const NUMS = new Set(['close', 'sig_close', 'chg_since', 'level', 'stop', 'tv_cr', 'age', 'mom', 'vam', 'resmom', 'fip', 'prox', 'ind_rs', 'sec_rs', 'ret5', 'vol', 'max21', 'abvol', 'ext50', 'sc_rs', 'bounce_rate', 'past_touches', 'align', 'wkst2', 'wkbo', 'mobo', 'moup', 'rsl', 'wkrsi']);
 const FLAGS = new Set(['n500', 'sc_ind_lead', 'sc_sec_lead', 'sc_leader']);
 
 /* ---------------- data ---------------- */
@@ -87,10 +87,13 @@ function passes(r) {
     if (k === 'market_up') { if (P.data.regime?.regime !== 'up') return false; continue; }
     if (k === 'liq_min') { if (!((r.tv_cr || 0) >= v)) return false; continue; }
     if (k === 'price_min') { if (!(r.close >= v)) return false; continue; }
-    const x = r[FMET[k]];
+    const d = (P.data.filters || []).find((z) => z.key === k) || {};
+    const x = r[d.metric || FMET[k]];
     if (x == null) return false;
-    if (k === 'dip_min') { if (!(x <= -Math.abs(v))) return false; continue; }
-    if (['smooth_max', 'calm_max', 'spike_max', 'ext_max'].includes(k)) { if (!(x <= v)) return false; continue; }
+    const op = d.op || (['smooth_max', 'calm_max', 'spike_max', 'ext_max'].includes(k) ? '<=' : k === 'dip_min' ? 'dip' : '>=');
+    if (op === 'dip') { if (!(x <= -Math.abs(v))) return false; continue; }
+    if (op === '<=') { if (!(x <= v)) return false; continue; }
+    if (op === 'within') { if (!(x <= v - 1)) return false; continue; }   // within the last N finished weeks / months
     if (!(x >= v)) return false;
   }
   if (scrUI.scLead && !(r.sc_ind_lead || r.sc_sec_lead)) return false;
@@ -139,7 +142,7 @@ function filterPanel(note = '') {
   const f = scrUI.filters;
   return `<section class="card scr-fp"><div class="card-head"><h2>Filters <span class="muted small">${nActive()} on${note ? ' · ' + note : ''}</span></h2>
     <div class="row"><button class="btn sm ghost" data-act="scrFopen">${scrUI.fopen ? 'Hide' : 'Show'}</button><button class="btn sm ghost" data-act="scrFclear">Clear</button></div></div>
-    ${scrUI.fopen ? `<div class="scr-fgrid">${P.data.filters.map((d) => `<label title="${X.esc(d.help)}"><span>${X.esc(d.label)}${d.strength ? ev(d.strength) : ''}</span><input class="input sm" inputmode="decimal" data-change="scrFilter" data-k="${d.key}" value="${f[d.key] || ''}" placeholder="off"></label>`).join('')}
+    ${scrUI.fopen ? `<div class="scr-fgrid">${P.data.filters.map((d, i, a) => `${d.group === 'Multi-timeframe' && (a[i - 1] || {}).group !== 'Multi-timeframe' ? '<p class="small" style="grid-column:1/-1;margin:8px 0 0"><b>Multi-timeframe</b> <span class="muted">(weekly / monthly from finished weeks and months only)</span></p>' : ''}<label title="${X.esc(d.help)}"><span>${X.esc(d.label)}${d.strength && d.group !== 'Multi-timeframe' ? ev(d.strength) : ''}</span><input class="input sm" inputmode="decimal" data-change="scrFilter" data-k="${d.key}" value="${f[d.key] || ''}" placeholder="off"></label>`).join('')}
       <label><span>Only Scorecard leading sector / industry</span><input type="checkbox" data-change="scrLead" ${scrUI.scLead ? 'checked' : ''}></label>
       <label><span>Hide stocks under NSE surveillance (ASM / GSM)</span><input type="checkbox" data-change="scrSurv" ${scrUI.noSurv ? 'checked' : ''}></label></div>
       <p class="muted small">Ranks are percentiles across liquid stocks (100 = best). Tap and hold a filter's name for what it means. Filters act on the lists at once; in a screen's page, "Run on Sagar's PC" backtests the screen WITH these filters.</p>` : ''}</section>`;
