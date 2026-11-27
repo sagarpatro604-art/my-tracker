@@ -82,7 +82,7 @@ const IDEA_STATUSES = ['Backlog', 'In progress', 'Ready', 'Scheduled', 'Posted']
 const BOOK_STATUSES = [['reading', 'Reading'], ['want', 'Want to read'], ['paused', 'Paused'], ['finished', 'Finished']];
 const PRIOS = [['highest', 'Highest'], ['high', 'High'], ['med', 'Medium'], ['low', 'Low'], ['lowest', 'Lowest']];
 const PRIO_RANK = { highest: 0, high: 1, med: 2, low: 3, lowest: 4 };
-const THOUGHT_CATS = ['LinkedIn posts', 'Instagram scripts', 'Ideas', 'Instagram inspo', 'Scripting ideas'];
+const THOUGHT_CATS = ['LinkedIn posts', 'Instagram scripts', 'Ideas', 'Instagram inspo', 'Scripting ideas', 'Books to read'];
 const lastThoughtCat = () => { try { return localStorage.getItem('tracker.thoughtCat') || 'Ideas'; } catch { return 'Ideas'; } };
 
 const ui = { sched: { mode: 'week', anchor: today(), filter: 'all', scroll: undefined }, todoTab: 'today', searchQ: '', issueId: null, ideaView: 'board', loginUser: null, loginErr: '', loginBusy: false, board: { scope: 'mine', who: 'all', view: 'board', q: '', quick: new Set(), epic: 'all', type: 'all', group: 'none', showOldDone: false, collapsed: new Set() }, taskFilter: 'today', taskQ: '', thoughtQ: '', thoughtCat: 'all', bookFilter: 'reading', ideaFilter: 'all', ideaQ: '', expanded: new Set() };
